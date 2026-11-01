@@ -9,7 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google/genai": "^2.32.0",
     "next": "16.4.3",
+    "pdfjs-dist": "^4.10.38",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

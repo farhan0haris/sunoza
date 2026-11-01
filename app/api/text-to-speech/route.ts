@@ -1,7 +1,11 @@
 
 import { NextResponse } from "next/server";
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
+  const startTime = performance.now();
+
   try {
     const apiKey = process.env.GNANI_API_KEY;
 
@@ -29,9 +33,9 @@ export async function POST(request: Request) {
       );
     }
 
-    if (text.length > 2000) {
+    if (text.length > 5000) {
       return NextResponse.json(
-        { error: "Text is too long." },
+        { error: "Text is too long. Please shorten it to under 5000 characters." },
         { status: 400 }
       );
     }
@@ -72,7 +76,10 @@ export async function POST(request: Request) {
       model: payload.model,
       voice: payload.voice,
       language: payload.language,
+      textLength: text.length,
     });
+
+    const ttsStart = performance.now();
 
     const response = await fetch(
       "https://api.vachana.ai/api/v1/tts/inference",
@@ -84,7 +91,12 @@ export async function POST(request: Request) {
         },
         body: JSON.stringify(payload),
         cache: "no-store",
+        signal: AbortSignal.timeout(15000),
       }
+    );
+
+    const ttsMs = Math.round(
+      performance.now() - ttsStart
     );
 
     if (!response.ok) {
@@ -93,11 +105,22 @@ export async function POST(request: Request) {
       console.error("Gnani TTS error:", {
         status: response.status,
         details,
+        ttsMs,
       });
+
+      let userMessage = "Gnani speech generation failed.";
+
+      if (response.status === 429) {
+        userMessage =
+          "Speech generation is temporarily busy. Please try again shortly.";
+      } else if (response.status >= 500) {
+        userMessage =
+          "The speech service is temporarily unavailable. Please try again.";
+      }
 
       return NextResponse.json(
         {
-          error: "Gnani speech generation failed.",
+          error: userMessage,
           details,
         },
         { status: response.status }
@@ -114,9 +137,16 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log(
-      `Timbre generated ${audio.byteLength} bytes of audio.`
+    const totalMs = Math.round(
+      performance.now() - startTime
     );
+
+    console.log("Timbre TTS complete:", {
+      audioBytes: audio.byteLength,
+      ttsMs,
+      totalMs,
+      textLength: text.length,
+    });
 
     return new Response(audio, {
       status: 200,
@@ -128,10 +158,17 @@ export async function POST(request: Request) {
     });
 
   } catch (error) {
+    const totalMs = Math.round(
+      performance.now() - startTime
+    );
+
     const message =
       error instanceof Error ? error.message : String(error);
 
-    console.error("TTS processing error:", message);
+    console.error("TTS processing error:", {
+      error: message,
+      totalMs,
+    });
 
     return NextResponse.json(
       {
