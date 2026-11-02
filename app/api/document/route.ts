@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
+import {
+  generateContentWithRetryAndFallback,
+  parseGeminiError,
+  GeminiServiceError,
+  PRIMARY_GEMINI_MODEL,
+} from "@/lib/gemini";
 
 export const maxDuration = 60;
 
@@ -77,7 +83,7 @@ export async function POST(request: Request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Gemini API key is missing." },
+        { error: "The AI service is temporarily misconfigured. Please check the server setup." },
         { status: 500 }
       );
     }
@@ -208,8 +214,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const ai = new GoogleGenAI({ apiKey });
-    const geminiStart = performance.now();
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { timeout: 40000 },
+    });
 
     // Document understanding system prompt
     const systemPrompt = `
@@ -234,18 +242,18 @@ Instructions:
 10. Write naturally because this will be spoken aloud to the user.
 `;
 
-    let response: any;
+    let result;
 
     if (docInfo.fileType === "pdf" && docInfo.isScannedOrEmpty) {
       // Scanned PDF OCR Fallback:
-      // Send the PDF binary directly to Gemini 3.8 Flash which has native multimodal PDF/document OCR capabilities
+      // Send the PDF binary directly to Gemini which has native multimodal PDF/document OCR capabilities
       console.log(
         "PDF has little to no text stream. Utilizing native Gemini vision/document OCR fallback."
       );
 
       const base64Pdf = fileBuffer.toString("base64");
-      response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+      result = await generateContentWithRetryAndFallback({
+        ai,
         contents: [
           {
             inlineData: {
@@ -260,12 +268,13 @@ Instructions:
         config: {
           maxOutputTokens: 1000,
         },
+        taskLabel: "Document OCR (Scanned PDF)",
       });
     } else if (docInfo.fileType === "image") {
       // Image document
       const base64Image = fileBuffer.toString("base64");
-      response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+      result = await generateContentWithRetryAndFallback({
+        ai,
         contents: [
           {
             inlineData: {
@@ -280,6 +289,7 @@ Instructions:
         config: {
           maxOutputTokens: 1000,
         },
+        taskLabel: "Document Image",
       });
     } else {
       // Digital PDF or Text file with extracted structure
@@ -294,8 +304,8 @@ ${docInfo.text}
 ${systemPrompt}
 `;
 
-      response = await ai.models.generateContent({
-        model: "gemini-3.8-flash",
+      result = await generateContentWithRetryAndFallback({
+        ai,
         contents: [
           {
             text: promptContent,
@@ -304,12 +314,11 @@ ${systemPrompt}
         config: {
           maxOutputTokens: 1000,
         },
+        taskLabel: `Document Text (${docInfo.fileType.toUpperCase()})`,
       });
     }
 
-    const geminiMs = Math.round(performance.now() - geminiStart);
-    const finishReason = response.candidates?.[0]?.finishReason;
-    const answer = response.text?.trim();
+    const answer = result.text;
 
     if (!answer) {
       throw new Error("Gemini returned an empty explanation for this document.");
@@ -322,9 +331,11 @@ ${systemPrompt}
       fileType: docInfo.fileType,
       numPages: docInfo.numPages,
       wasOcrFallback: docInfo.isScannedOrEmpty,
-      geminiMs,
+      modelUsed: result.modelUsed,
+      wasFallbackUsed: result.wasFallbackUsed,
+      attempts: result.attempts,
       totalMs,
-      finishReason,
+      finishReason: result.finishReason,
     });
 
     return NextResponse.json({
@@ -333,39 +344,48 @@ ${systemPrompt}
       numPages: docInfo.numPages,
       fileType: docInfo.fileType,
       isScanned: docInfo.isScannedOrEmpty,
-      finishReason: finishReason ?? "unknown",
+      finishReason: result.finishReason,
+      model: result.modelUsed,
     });
   } catch (error) {
     const totalMs = Math.round(performance.now() - startTime);
 
+    // Secure server-side technical error logging
     console.error("Document understanding error:", {
       error: error instanceof Error ? error.message : String(error),
       totalMs,
     });
 
-    let userMessage = "Sunoza could not understand this document.";
+    let statusCode = 500;
+    let userMessage = "Sunoza could not understand this document. Please try again.";
+
     if (error instanceof Error) {
       if (
         error.name === "InvalidPDFException" ||
         error.message.includes("Invalid PDF") ||
         error.message.includes("FormatError")
       ) {
+        statusCode = 400;
         userMessage = "The uploaded PDF appears to be corrupted or invalid.";
-      } else if (error.message.includes("exceeding the maximum")) {
+      } else if (error.message.includes("exceeding the maximum supported limit")) {
+        statusCode = 400;
         userMessage = error.message;
-      } else if (error.message.includes("quota") || error.message.includes("429")) {
-        userMessage = "Sunoza is receiving too many requests. Please try again shortly.";
-      } else if (error.message.includes("timeout") || error.message.includes("DEADLINE")) {
-        userMessage = "The document analysis took too long. Please try a smaller document.";
+      } else if (error instanceof GeminiServiceError) {
+        statusCode = error.statusCode;
+        userMessage = error.message;
+      } else {
+        const parsed = parseGeminiError(error);
+        statusCode = parsed.statusCode;
+        userMessage = parsed.userFacingMessage;
       }
     }
 
+    // Never return raw Google API JSON or stack traces to the client
     return NextResponse.json(
       {
         error: userMessage,
-        details: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 }
+      { status: statusCode >= 400 && statusCode < 600 ? statusCode : 500 }
     );
   }
 }

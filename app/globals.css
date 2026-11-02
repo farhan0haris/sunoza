@@ -1,8 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #F7F5EF;
+  --foreground: #252B28;
+  --sunoza-green: #315B49;
+  --sunoza-green-dark: #254638;
+  --sunoza-green-light: #64806E;
+  --sunoza-sage: #E8EFE8;
+  --sunoza-border: #E5E6DE;
+  --sunoza-surface: #F0F4F1;
 }
 
 @theme inline {
@@ -12,15 +18,81 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Mic button pulse ring animation */
+@keyframes mic-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(49, 91, 73, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 20px rgba(49, 91, 73, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(49, 91, 73, 0);
+  }
+}
+
+@keyframes mic-recording-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 22px rgba(220, 38, 38, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
+  }
+}
+
+.mic-idle {
+  box-shadow: 0 4px 24px rgba(49, 91, 73, 0.18);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.mic-idle:hover {
+  transform: scale(1.06);
+  box-shadow: 0 6px 32px rgba(49, 91, 73, 0.28);
+}
+.mic-idle:active {
+  transform: scale(0.96);
+}
+
+.mic-recording {
+  animation: mic-recording-pulse 1.4s ease-out infinite;
+}
+
+/* Audio player styling */
+audio {
+  border-radius: 12px;
+  height: 44px;
+}
+audio::-webkit-media-controls-panel {
+  background: #F0F4F1;
+}
+
+/* Smooth focus rings */
+*:focus-visible {
+  outline: 2px solid var(--sunoza-green);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Custom select arrow */
+.select-clean {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23315B49' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0px center;
+  padding-right: 18px;
+}
+
+/* Upload area file input label styling */
+.upload-area {
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }

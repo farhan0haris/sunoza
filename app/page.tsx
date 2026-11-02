@@ -933,156 +933,219 @@ export default function Home() {
     }
   }
 
+  // Derive mic visual state
+  const micState = loading
+    ? ("processing" as const)
+    : recording
+      ? ("recording" as const)
+      : voiceThinking
+        ? ("thinking" as const)
+        : voiceAudioLoading
+          ? ("speaking" as const)
+          : ("idle" as const);
+
   return (
-    <main className="min-h-screen bg-[#F7F5EF] px-5 py-10 text-[#252B28]">
+    <main className="min-h-screen bg-[#F7F5EF] px-4 py-8 text-[#252B28] sm:px-6 md:py-12">
       <div className="mx-auto max-w-2xl">
-        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#315B49] text-2xl font-bold text-white">
-              S
+
+        {/* ─── Header ─── */}
+        <header className="mb-10 flex items-center justify-between">
+          <div className="flex items-center gap-3.5">
+            {/* Logo mark */}
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#315B49] shadow-sm">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Z" fill="none" stroke="white" strokeWidth="1.5"/>
+                <path d="M12 6a4 4 0 0 1 4 4c0 2.21-1.79 4-4 4" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <path d="M12 14v4" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                <circle cx="12" cy="21" r="1" fill="white"/>
+              </svg>
             </div>
 
             <div>
-              <h1 className="text-2xl font-semibold text-[#315B49]">Sunoza</h1>
-              <p className="text-sm text-gray-500">
+              <h1 className="text-xl font-semibold tracking-tight text-[#315B49]">Sunoza</h1>
+              <p className="text-[13px] text-[#64806E]">
                 Technology that understands you.
               </p>
             </div>
           </div>
 
-          {/* 1. Global Language Selector */}
-          <div className="flex items-center gap-2 self-start rounded-2xl border border-[#E5E6DE] bg-white px-3 py-2 shadow-sm sm:self-center">
-            <label htmlFor="language-select" className="text-xs font-medium text-gray-500">
-              Language:
-            </label>
+          {/* Language Selector */}
+          <div className="flex items-center gap-2 rounded-full border border-[#E5E6DE] bg-white px-3.5 py-2 shadow-sm">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0 text-[#64806E]" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2Z" stroke="currentColor" strokeWidth="1.5"/>
+            </svg>
             <select
               id="language-select"
+              aria-label="Language"
               value={selectedLanguage}
               onChange={(e) => setSelectedLanguage(e.target.value)}
-              className="bg-transparent text-sm font-semibold text-[#315B49] outline-none cursor-pointer"
+              className="select-clean bg-transparent text-sm font-medium text-[#315B49] outline-none cursor-pointer"
             >
-              <option value="auto">Auto-detect (Auto)</option>
-              <option value="en-IN">English (India)</option>
-              <option value="hi-IN">हिन्दी (Hindi)</option>
-              <option value="te-IN">తెలుగు (Telugu)</option>
+              <option value="auto">Auto-detect</option>
+              <option value="en-IN">English</option>
+              <option value="hi-IN">हिन्दी</option>
+              <option value="te-IN">తెలుగు</option>
             </select>
           </div>
         </header>
 
-        {/* Section 1: Voice Assistant */}
-        <section className="rounded-3xl border border-[#E5E6DE] bg-white p-7 shadow-sm sm:p-10">
+        {/* ─── Section 1: Voice Assistant ─── */}
+        <section className="rounded-3xl border border-[#E5E6DE] bg-white p-6 shadow-sm sm:p-10">
           <div className="text-center">
-            <p className="mb-3 text-sm font-medium uppercase tracking-widest text-[#64806E]">
-              Your voice assistant
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#64806E]">
+              Voice assistant
             </p>
 
-            <h2 className="text-3xl font-semibold">How can I help you?</h2>
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">How can I help you?</h2>
 
-            <p className="mt-3 text-gray-500">
-              Speak naturally. You can mix languages too.
+            <p className="mt-2 text-[15px] text-[#64806E]">
+              Speak naturally in any language. Sunoza listens, understands and responds.
             </p>
           </div>
 
+          {/* Mic Button Area */}
           <div className="my-10 flex flex-col items-center">
             <button
               type="button"
               onClick={recording ? stopRecording : startRecording}
               disabled={loading || voiceThinking}
               aria-label={recording ? "Stop recording" : "Start recording"}
-              className={`flex h-28 w-28 items-center justify-center rounded-full text-4xl text-white shadow-lg transition ${
-                recording
-                  ? "bg-red-600 animate-pulse"
-                  : "bg-[#315B49] hover:bg-[#254638]"
-              } disabled:cursor-not-allowed disabled:opacity-50`}
+              className={`relative flex h-[88px] w-[88px] items-center justify-center rounded-full transition-all duration-200 ${
+                micState === "recording"
+                  ? "bg-red-600 mic-recording"
+                  : micState === "processing" || micState === "thinking"
+                    ? "bg-[#315B49] opacity-70 cursor-wait"
+                    : "bg-[#315B49] mic-idle"
+              } disabled:cursor-not-allowed`}
             >
-              {recording ? "■" : "🎙"}
+              {/* Mic / Stop Icon */}
+              {micState === "recording" ? (
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="white" aria-hidden="true">
+                  <rect x="6" y="6" width="12" height="12" rx="2"/>
+                </svg>
+              ) : micState === "processing" || micState === "thinking" ? (
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className="animate-spin" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="2" strokeDasharray="50" strokeDashoffset="15" strokeLinecap="round"/>
+                </svg>
+              ) : (
+                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="9" y="2" width="6" height="12" rx="3" fill="white"/>
+                  <path d="M5 11a7 7 0 0 0 14 0" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
+                  <path d="M12 18v3" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
+                  <path d="M9 21h6" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
+                </svg>
+              )}
             </button>
 
-            <p className="mt-5 text-lg font-medium" aria-live="polite">
-              {loading
-                ? "Processing your voice..."
-                : recording
-                  ? "Tap to stop"
-                  : "Tap to speak"}
+            <p className="mt-5 text-base font-medium text-[#252B28]" aria-live="polite">
+              {micState === "processing"
+                ? "Processing your voice…"
+                : micState === "recording"
+                  ? "Listening — tap to stop"
+                  : micState === "thinking"
+                    ? "Thinking…"
+                    : micState === "speaking"
+                      ? "Generating audio…"
+                      : "Tap the mic to speak"}
             </p>
 
-            <p className="mt-1 text-sm text-gray-400">
-              Keep your recording under 30 seconds.
+            <p className="mt-1.5 text-[13px] text-[#64806E]">
+              {micState === "recording"
+                ? "Speak clearly, up to 30 seconds"
+                : "Supports Hindi, English, Telugu and more"}
             </p>
           </div>
 
+          {/* Processing indicator */}
           {loading && (
-            <p role="status" aria-live="polite" className="mb-5 text-center text-[#315B49]">
-              Sending audio to Gnani Prisma...
-            </p>
+            <div role="status" aria-live="polite" className="mb-5 flex items-center justify-center gap-2 text-sm text-[#315B49]">
+              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#315B49]"></span>
+              Transcribing with Gnani Prisma…
+            </div>
           )}
 
+          {/* Error */}
           {error && (
             <div
               role="alert"
-              className="mb-5 rounded-xl bg-red-50 p-4 text-sm text-red-700"
+              className="mb-5 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm text-red-700"
             >
               {error}
             </div>
           )}
 
+          {/* Transcript result */}
           {transcript && (
-            <div className="rounded-2xl bg-[#E8EFE8] p-6">
-              <p className="mb-3 text-sm font-semibold uppercase tracking-wide text-[#315B49]">
+            <div className="rounded-2xl bg-[#E8EFE8] p-5 sm:p-6">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-[#315B49]">
                 What I heard
               </p>
 
-              <p className="text-lg leading-relaxed">{transcript}</p>
+              <p className="text-[17px] leading-relaxed">{transcript}</p>
 
-              <p className="mt-4 text-sm text-gray-600">
-                Detected language: {detectedLanguage || (selectedLanguage !== "auto" ? selectedLanguage : "Auto")}
+              <p className="mt-3 text-xs text-[#64806E]">
+                Language: {detectedLanguage || (selectedLanguage !== "auto" ? selectedLanguage : "Auto-detect")}
               </p>
 
-              {/* 3. Screen Reader Live Announcement for Voice Assistant */}
+              {/* Sunoza response */}
               {assistantResponse && (
                 <div
-                  className="mt-5 rounded-xl bg-white p-4"
+                  className="mt-4 rounded-xl bg-white px-5 py-4 shadow-sm"
                   aria-live="polite"
                   role="region"
                   aria-label="Assistant answer"
                 >
-                  <p className="mb-2 text-sm font-semibold text-[#315B49]">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#315B49]">
                     Sunoza says
                   </p>
 
-                  <p className="text-base leading-relaxed text-[#252B28]">
+                  <p className="text-[15px] leading-relaxed text-[#252B28]">
                     {assistantResponse}
                   </p>
                 </div>
               )}
 
-              {/* 5. Decoupled Voice Assistant Speech Pipeline */}
-              <div className="mt-5 border-t border-[#D5E1D6] pt-4">
+              {/* Ask / Audio pipeline */}
+              <div className="mt-4 border-t border-[#D5E1D6] pt-4">
                 <button
                   type="button"
                   onClick={speakTranscript}
                   disabled={voiceThinking || loading}
-                  className="rounded-xl bg-[#315B49] px-5 py-3 font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-[#254638] transition"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#315B49] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#254638] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {voiceThinking ? "Thinking..." : "🔊 Ask Sunoza"}
+                  {voiceThinking ? (
+                    <>
+                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                      Thinking…
+                    </>
+                  ) : (
+                    <>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <path d="M11 5L6 9H2v6h4l5 4V5Z" fill="white"/>
+                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
+                      </svg>
+                      Ask Sunoza
+                    </>
+                  )}
                 </button>
 
                 {voiceAudioLoading && (
-                  <div className="mt-3 flex items-center gap-1.5 text-xs text-[#64806E]" aria-live="polite">
+                  <div className="mt-3 flex items-center gap-2 text-xs text-[#64806E]" aria-live="polite">
                     <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#315B49]"></span>
-                    Generating voice with Gnani Timbre...
+                    Generating voice…
                   </div>
                 )}
 
                 {voiceAudioError && (
-                  <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-50 p-3 text-xs text-amber-800" role="alert">
-                    <span>Voice playback issue: {voiceAudioError}</span>
+                  <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-800" role="alert">
+                    <span>{voiceAudioError}</span>
                     <button
                       type="button"
                       onClick={() => generateVoiceAudio(assistantResponse)}
                       disabled={voiceAudioLoading}
                       aria-label="Retry voice audio generation"
-                      className="ml-2 font-semibold underline hover:text-amber-900 focus:outline-none"
+                      className="ml-3 font-semibold underline hover:text-amber-900 focus:outline-none"
                     >
                       Retry
                     </button>
@@ -1103,42 +1166,52 @@ export default function Home() {
             </div>
           )}
 
-          <div className="mt-8 border-t border-gray-100 pt-6">
+          {/* Audio upload */}
+          <div className="mt-7 border-t border-[#E5E6DE] pt-5">
             <label
               htmlFor="audio-upload"
-              className="mb-2 block text-sm font-medium"
+              className={`upload-area flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-[#D5E1D6] bg-[#FAFAF6] px-5 py-5 text-center hover:border-[#315B49] hover:bg-[#F0F4F1] ${
+                loading || recording || voiceThinking ? "pointer-events-none opacity-50" : ""
+              }`}
             >
-              Or upload an audio recording
+              <div className="flex items-center gap-2.5">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-[#64806E]" aria-hidden="true">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                  <path d="M17 8l-5-5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M12 3v12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                <span className="text-sm font-medium text-[#315B49]">Upload an audio recording</span>
+              </div>
+
+              <span className="mt-1.5 text-xs text-[#64806E]">
+                WAV, MP3, OGG, FLAC, AAC, M4A
+              </span>
+
+              <input
+                id="audio-upload"
+                type="file"
+                accept=".wav,.mp3,.ogg,.flac,.aac,.m4a"
+                onChange={handleFileUpload}
+                disabled={loading || recording || voiceThinking}
+                className="sr-only"
+              />
             </label>
-
-            <input
-              id="audio-upload"
-              type="file"
-              accept=".wav,.mp3,.ogg,.flac,.aac,.m4a"
-              onChange={handleFileUpload}
-              disabled={loading || recording || voiceThinking}
-              className="block w-full rounded-xl border border-gray-200 p-3 text-base sm:text-sm"
-            />
-
-            <p className="mt-2 text-xs text-gray-400">
-              Supported: WAV, MP3, OGG, FLAC, AAC and M4A.
-            </p>
           </div>
         </section>
 
-        {/* Section 2: Image Understanding */}
-        <section className="mt-8 rounded-3xl border border-[#E5E6DE] bg-white p-7 shadow-sm sm:p-10">
+        {/* ─── Section 2: Image Understanding ─── */}
+        <section className="mt-6 rounded-3xl border border-[#E5E6DE] bg-white p-6 shadow-sm sm:p-10">
           <div className="mb-6">
-            <p className="text-sm font-medium uppercase tracking-widest text-[#64806E]">
-              Images
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-[#64806E]">
+              Image understanding
             </p>
 
-            <h2 className="mt-2 text-2xl font-semibold">
-              What would you like me to explain?
+            <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
+              Explain a screenshot or photo
             </h2>
 
-            <p className="mt-2 text-sm text-gray-500">
-              Upload a screenshot or photo and Sunoza will explain it.
+            <p className="mt-1.5 text-sm text-[#64806E]">
+              Upload any image and Sunoza will describe what it sees.
             </p>
           </div>
 
@@ -1151,16 +1224,22 @@ export default function Home() {
                 document.getElementById("image-upload")?.click();
               }
             }}
-            className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#C8D5C9] bg-[#F7F5EF] p-8 text-center hover:bg-[#E8EFE8] focus:outline-none focus:ring-2 focus:ring-[#315B49] focus:ring-offset-2"
+            className="upload-area flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#D5E1D6] bg-[#FAFAF6] px-6 py-8 text-center hover:border-[#315B49] hover:bg-[#F0F4F1] focus-visible:outline-2 focus-visible:outline-[#315B49]"
           >
-            <span className="text-4xl">📷</span>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#E8EFE8]">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-[#315B49]" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5"/>
+                <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
+                <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </div>
 
-            <span className="mt-3 font-semibold text-[#315B49]">
-              Upload an image
+            <span className="mt-3 text-sm font-semibold text-[#315B49]">
+              Choose an image
             </span>
 
-            <span className="mt-1 text-xs text-gray-500">
-              JPG, PNG or WEBP · Maximum 8 MB
+            <span className="mt-1 text-xs text-[#64806E]">
+              JPEG, PNG or WEBP · Max 8 MB
             </span>
 
             <input
@@ -1192,15 +1271,23 @@ export default function Home() {
             />
           </label>
 
-          {/* 4. File Removal Control for Image */}
+          {/* Selected file badge */}
           {imageFile && (
-            <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F0F4F1] px-4 py-2.5 text-sm text-[#315B49]">
-              <span className="truncate font-medium">Selected: {imageFile.name} ({(imageFile.size / 1024).toFixed(0)} KB)</span>
+            <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F0F4F1] px-4 py-2.5 text-sm">
+              <div className="flex items-center gap-2 truncate text-[#315B49]">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5"/>
+                  <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
+                  <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span className="truncate font-medium">{imageFile.name}</span>
+                <span className="shrink-0 text-xs text-[#64806E]">({(imageFile.size / 1024).toFixed(0)} KB)</span>
+              </div>
               <button
                 type="button"
                 onClick={clearSelectedImage}
                 aria-label="Remove selected image"
-                className="ml-2 font-semibold text-red-600 hover:text-red-800 text-xs underline focus:outline-none"
+                className="ml-2 shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-800 focus:outline-none transition"
               >
                 Remove
               </button>
@@ -1209,90 +1296,83 @@ export default function Home() {
 
           <label
             htmlFor="image-question"
-            className="mt-6 mb-2 block text-sm font-medium"
+            className="mt-5 mb-2 block text-sm font-medium text-[#252B28]"
           >
             What do you want to know?
           </label>
 
-          {/* 2. Mobile Input Zoom Prevention (text-base on mobile, text-sm on sm+) */}
           <textarea
             id="image-question"
             value={imageQuestion}
             onChange={(event) => setImageQuestion(event.target.value)}
-            placeholder="Ask a question about your image..."
-            rows={3}
-            className="w-full rounded-xl border border-gray-200 p-4 text-base sm:text-sm outline-none focus:border-[#315B49]"
+            placeholder="Ask a question about your image…"
+            rows={2}
+            className="w-full rounded-xl border border-[#E5E6DE] bg-[#FAFAF6] p-4 text-base outline-none transition focus:border-[#315B49] focus:bg-white sm:text-sm"
           />
 
           <button
             type="button"
             onClick={understandImage}
             disabled={!imageFile || understandStatus !== "idle"}
-            className="mt-5 w-full rounded-xl bg-[#315B49] px-5 py-4 font-semibold text-white hover:bg-[#254638] disabled:cursor-not-allowed disabled:opacity-50 transition"
+            className="mt-4 w-full rounded-xl bg-[#315B49] px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#254638] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {understandStatus === "understanding"
-              ? "Understanding image..."
+              ? "Understanding image…"
               : understandStatus === "preparing"
-              ? "Preparing explanation..."
-              : "Understand this"}
+              ? "Preparing explanation…"
+              : "Explain this image"}
           </button>
 
           {understandError && (
-            <p role="alert" className="mt-4 text-sm text-red-600">
+            <div role="alert" className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
               {understandError}
-            </p>
+            </div>
           )}
 
-          {/* 3. Screen Reader Live Announcement for Image Explanation */}
+          {/* Image explanation result */}
           {imageAnswer && (
             <div
-              className="mt-6 rounded-2xl bg-[#E8EFE8] p-6"
+              className="mt-6 rounded-2xl bg-[#E8EFE8] p-5 sm:p-6"
               aria-live="polite"
               role="region"
               aria-label="Image explanation"
             >
-              <p className="mb-3 font-semibold text-[#315B49]">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#315B49]">
                 Sunoza explains
               </p>
 
-              <p className="leading-relaxed text-[#252B28]">
+              <p className="text-[15px] leading-relaxed text-[#252B28]">
                 {imageAnswer}
               </p>
 
-              {/* Independent Audio Feedback & Player */}
-              <div className="mt-5 border-t border-[#D5E1D6] pt-4">
+              {/* Audio player */}
+              <div className="mt-4 border-t border-[#D5E1D6] pt-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-[#315B49]">
-                    Listen to the explanation
+                    Listen to explanation
                   </p>
                   {understandAudioLoading && (
                     <span className="flex items-center gap-1.5 text-xs text-[#64806E]" aria-live="polite">
                       <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#315B49]"></span>
-                      Generating audio...
+                      Generating…
                     </span>
                   )}
                   {understandAudioUrl && !understandAudioLoading && (
                     <span className="text-xs font-medium text-[#315B49]">
-                      Audio ready.
+                      ✓ Ready
                     </span>
                   )}
                 </div>
 
-                {understandAudioLoading && (
-                  <p className="mt-2 text-xs italic text-gray-500">
-                    Generating spoken audio in the background with Gnani Timbre...
-                  </p>
-                )}
-
                 {understandAudioError && (
-                  <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-50 p-3 text-xs text-amber-800" role="alert">
-                    <span>Audio could not be generated: {understandAudioError}</span>
+                  <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-800" role="alert">
+                    <span>{understandAudioError}</span>
                     <button
                       type="button"
                       onClick={() => generateUnderstandAudio(imageAnswer)}
                       disabled={understandAudioLoading}
                       aria-label="Retry audio generation"
-                      className="ml-2 font-semibold underline hover:text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-800"
+                      className="ml-3 font-semibold underline hover:text-amber-900 focus:outline-none"
                     >
                       Retry
                     </button>
@@ -1313,25 +1393,27 @@ export default function Home() {
           )}
         </section>
 
-        {/* Section 3: Document Understanding (PDF, TXT, Images) */}
-        <section className="mt-8 rounded-3xl border border-[#E5E6DE] bg-white p-7 shadow-sm sm:p-10">
+        {/* ─── Section 3: Document Understanding ─── */}
+        <section className="mt-6 rounded-3xl border border-[#E5E6DE] bg-white p-6 shadow-sm sm:p-10">
           <div className="mb-6">
-            <p className="text-sm font-medium uppercase tracking-widest text-[#64806E]">
-              Documents & PDFs
+            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-[#64806E]">
+              Document understanding
             </p>
 
-            <h2 className="mt-2 text-2xl font-semibold">
-              Understand a document or PDF
+            <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
+              Understand any document
             </h2>
 
-            <p className="mt-2 text-sm text-gray-500">
-              Upload invoices, lease agreements, policies, or notes. Sunoza extracts text, detects scanned pages, and highlights key dates and amounts.
+            <p className="mt-1.5 text-sm text-[#64806E]">
+              Upload invoices, agreements, policies or notes. Sunoza extracts text, detects scanned pages and highlights key information.
             </p>
           </div>
 
           {/* Drag & drop file area */}
           <div
             tabIndex={0}
+            role="button"
+            aria-label="Upload a document"
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
@@ -1364,20 +1446,26 @@ export default function Home() {
               }
             }}
             onClick={() => document.getElementById("doc-upload")?.click()}
-            className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-8 text-center transition focus:outline-none focus:ring-2 focus:ring-[#315B49] focus:ring-offset-2 ${
+            className={`upload-area flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-8 text-center transition focus-visible:outline-2 focus-visible:outline-[#315B49] ${
               isDocDragging
                 ? "border-[#315B49] bg-[#E8EFE8]"
-                : "border-[#C8D5C9] bg-[#F7F5EF] hover:bg-[#E8EFE8]"
+                : "border-[#D5E1D6] bg-[#FAFAF6] hover:border-[#315B49] hover:bg-[#F0F4F1]"
             }`}
           >
-            <span className="text-4xl">📄</span>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#E8EFE8]">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-[#315B49]" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+                <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+                <path d="M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            </div>
 
-            <span className="mt-3 font-semibold text-[#315B49]">
-              Upload or drop a document
+            <span className="mt-3 text-sm font-semibold text-[#315B49]">
+              {isDocDragging ? "Drop your file here" : "Choose or drop a document"}
             </span>
 
-            <span className="mt-1 text-xs text-gray-500">
-              PDF, TXT, MD, CSV, or Image (JPEG, PNG, WEBP) · Maximum 10 MB (up to 30 pages)
+            <span className="mt-1 text-xs text-[#64806E]">
+              PDF, TXT, MD, CSV or Image · Max 10 MB
             </span>
 
             <input
@@ -1404,15 +1492,22 @@ export default function Home() {
             />
           </div>
 
-          {/* 4. File Removal Control for Document */}
+          {/* Selected document badge */}
           {docFile && (
-            <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F0F4F1] px-4 py-2.5 text-sm text-[#315B49]">
-              <span className="truncate font-medium">Selected: {docFile.name} ({(docFile.size / 1024).toFixed(0)} KB)</span>
+            <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F0F4F1] px-4 py-2.5 text-sm">
+              <div className="flex items-center gap-2 truncate text-[#315B49]">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+                  <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
+                </svg>
+                <span className="truncate font-medium">{docFile.name}</span>
+                <span className="shrink-0 text-xs text-[#64806E]">({(docFile.size / 1024).toFixed(0)} KB)</span>
+              </div>
               <button
                 type="button"
                 onClick={clearSelectedDocument}
                 aria-label="Remove selected document"
-                className="ml-2 font-semibold text-red-600 hover:text-red-800 text-xs underline focus:outline-none"
+                className="ml-2 shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-800 focus:outline-none transition"
               >
                 Remove
               </button>
@@ -1421,98 +1516,91 @@ export default function Home() {
 
           <label
             htmlFor="doc-question"
-            className="mt-6 mb-2 block text-sm font-medium"
+            className="mt-5 mb-2 block text-sm font-medium text-[#252B28]"
           >
             What would you like explained?
           </label>
 
-          {/* 2. Mobile Input Zoom Prevention (text-base on mobile, text-sm on sm+) */}
           <textarea
             id="doc-question"
             value={docQuestion}
             onChange={(event) => setDocQuestion(event.target.value)}
-            placeholder="Ask questions about dates, fees, penalties, or summaries..."
-            rows={3}
-            className="w-full rounded-xl border border-gray-200 p-4 text-base sm:text-sm outline-none focus:border-[#315B49]"
+            placeholder="Ask about dates, fees, penalties, summaries…"
+            rows={2}
+            className="w-full rounded-xl border border-[#E5E6DE] bg-[#FAFAF6] p-4 text-base outline-none transition focus:border-[#315B49] focus:bg-white sm:text-sm"
           />
 
           <button
             type="button"
             onClick={understandDocument}
             disabled={!docFile || docStatus !== "idle"}
-            className="mt-5 w-full rounded-xl bg-[#315B49] px-5 py-4 font-semibold text-white hover:bg-[#254638] disabled:cursor-not-allowed disabled:opacity-50 transition"
+            className="mt-4 w-full rounded-xl bg-[#315B49] px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#254638] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {docStatus === "reading"
-              ? "Extracting document text..."
+              ? "Extracting text…"
               : docStatus === "analyzing"
-              ? "Analyzing document content..."
-              : "Explain Document"}
+              ? "Analyzing content…"
+              : "Explain this document"}
           </button>
 
           {docError && (
-            <p role="alert" className="mt-4 text-sm text-red-600">
+            <div role="alert" className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
               {docError}
-            </p>
+            </div>
           )}
 
-          {/* 3. Screen Reader Live Announcement for Document Explanation */}
+          {/* Document explanation result */}
           {docAnswer && (
             <div
-              className="mt-6 rounded-2xl bg-[#E8EFE8] p-6"
+              className="mt-6 rounded-2xl bg-[#E8EFE8] p-5 sm:p-6"
               aria-live="polite"
               role="region"
               aria-label="Document explanation"
             >
-              <div className="mb-3 flex items-center justify-between">
-                <p className="font-semibold text-[#315B49]">
-                  Document Summary & Explanation
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#315B49]">
+                  Document explanation
                 </p>
                 {docMeta && (
-                  <span className="rounded-full bg-[#D5E1D6] px-2.5 py-1 text-xs font-medium text-[#254638]">
-                    {docMeta.fileType?.toUpperCase()} · {docMeta.numPages} {docMeta.numPages === 1 ? "Page" : "Pages"}
-                    {docMeta.isScanned ? " (OCR Analyzed)" : ""}
+                  <span className="rounded-full bg-[#D5E1D6] px-2.5 py-1 text-[11px] font-medium text-[#254638]">
+                    {docMeta.fileType?.toUpperCase()} · {docMeta.numPages} {docMeta.numPages === 1 ? "page" : "pages"}
+                    {docMeta.isScanned ? " · OCR" : ""}
                   </span>
                 )}
               </div>
 
-              <div className="leading-relaxed whitespace-pre-line text-[#252B28]">
+              <div className="text-[15px] leading-relaxed whitespace-pre-line text-[#252B28]">
                 {docAnswer}
               </div>
 
-              {/* Independent Audio Feedback & Player for Document */}
-              <div className="mt-5 border-t border-[#D5E1D6] pt-4">
+              {/* Audio player */}
+              <div className="mt-4 border-t border-[#D5E1D6] pt-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-[#315B49]">
-                    Listen to document explanation
+                    Listen to explanation
                   </p>
                   {docAudioLoading && (
                     <span className="flex items-center gap-1.5 text-xs text-[#64806E]" aria-live="polite">
                       <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#315B49]"></span>
-                      Generating audio...
+                      Generating…
                     </span>
                   )}
                   {docAudioUrl && !docAudioLoading && (
                     <span className="text-xs font-medium text-[#315B49]">
-                      Audio ready.
+                      ✓ Ready
                     </span>
                   )}
                 </div>
 
-                {docAudioLoading && (
-                  <p className="mt-2 text-xs italic text-gray-500">
-                    Generating spoken explanation in the background with Gnani Timbre...
-                  </p>
-                )}
-
                 {docAudioError && (
-                  <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-50 p-3 text-xs text-amber-800" role="alert">
-                    <span>Audio could not be generated: {docAudioError}</span>
+                  <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-800" role="alert">
+                    <span>{docAudioError}</span>
                     <button
                       type="button"
                       onClick={() => generateDocAudio(docAnswer)}
                       disabled={docAudioLoading}
                       aria-label="Retry document audio generation"
-                      className="ml-2 font-semibold underline hover:text-amber-900 focus:outline-none focus:ring-1 focus:ring-amber-800"
+                      className="ml-3 font-semibold underline hover:text-amber-900 focus:outline-none"
                     >
                       Retry
                     </button>
@@ -1533,8 +1621,9 @@ export default function Home() {
           )}
         </section>
 
-        <footer className="mt-8 text-center text-sm text-gray-400">
-          Sunoza · Powered by Gnani Prisma
+        {/* ─── Footer ─── */}
+        <footer className="mt-10 pb-4 text-center text-xs text-[#64806E]">
+          Sunoza · Powered by Gnani AI
         </footer>
       </div>
     </main>

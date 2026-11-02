@@ -1,6 +1,6 @@
-
 import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
+import { parseGeminiError } from "@/lib/gemini";
 
 export const maxDuration = 60;
 
@@ -10,7 +10,7 @@ export async function POST(request: Request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Gemini API key is missing." },
+        { error: "The AI service is temporarily misconfigured. Please check the server setup." },
         { status: 500 }
       );
     }
@@ -34,7 +34,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { timeout: 30000 },
+    });
 
     const startTime = Date.now();
 
@@ -92,17 +95,15 @@ Write naturally, clearly and conversationally.
     });
 
   } catch (error) {
-    console.error("Gemini error:", error);
+    console.error("Gemini chat error:", error);
+
+    const parsed = parseGeminiError(error);
 
     return NextResponse.json(
       {
-        error: "Sunoza could not generate an answer.",
-        details:
-          error instanceof Error
-            ? error.message
-            : "Unknown error",
+        error: parsed.userFacingMessage,
       },
-      { status: 500 }
+      { status: parsed.statusCode >= 400 && parsed.statusCode < 600 ? parsed.statusCode : 500 }
     );
   }
 }
