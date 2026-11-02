@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import {
+  LANGUAGES,
+  INDIAN_LANGUAGES,
+  INTERNATIONAL_LANGUAGES,
+  type LanguageCode,
+  getLanguageMeta,
+} from "@/lib/languages";
+import { getTranslations, type TranslationStrings } from "@/lib/translations";
 
 // Client-side image resizing utility to reduce upload latency and memory while preserving readability
 async function resizeImageIfNeeded(file: File, maxDimension = 1600): Promise<File> {
@@ -79,7 +87,6 @@ function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
 
   const samples = new Float32Array(outputLength);
 
-  // Downmix to mono and resample to 16 kHz.
   for (let i = 0; i < outputLength; i++) {
     const start = Math.floor(i * ratio);
     const end = Math.min(
@@ -92,11 +99,9 @@ function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
 
     for (let frame = start; frame < end; frame++) {
       let sample = 0;
-
       for (const channel of channels) {
         sample += channel[frame] / channels.length;
       }
-
       sum += sample;
       count++;
     }
@@ -104,7 +109,6 @@ function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
     samples[i] = count > 0 ? sum / count : 0;
   }
 
-  // Encode samples as 16-bit PCM WAV.
   const dataSize = samples.length * 2;
   const buffer = new ArrayBuffer(44 + dataSize);
   const view = new DataView(buffer);
@@ -130,25 +134,54 @@ function audioBufferToWav(audioBuffer: AudioBuffer): Blob {
   view.setUint32(40, dataSize, true);
 
   let offset = 44;
-
   for (const sample of samples) {
     const clamped = Math.max(-1, Math.min(1, sample));
-
     view.setInt16(
       offset,
       clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff,
       true
     );
-
     offset += 2;
   }
 
   return new Blob([buffer], { type: "audio/wav" });
 }
 
+// Subtle soundwave-inspired branding motif
+function SoundwaveMotif({
+  bars = 4,
+  height = "h-4",
+  color = "text-[#D99B37]",
+  animated = false,
+}: {
+  bars?: number;
+  height?: string;
+  color?: string;
+  animated?: boolean;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-0.5 ${color}`} aria-hidden="true">
+      <span className={`w-0.5 rounded-full bg-current ${animated ? "wave-bar-1" : "h-1.5"}`}></span>
+      <span className={`w-0.5 rounded-full bg-current ${animated ? "wave-bar-2" : "h-3"}`}></span>
+      <span className={`w-0.5 rounded-full bg-current ${animated ? "wave-bar-3" : "h-4"}`}></span>
+      <span className={`w-0.5 rounded-full bg-current ${animated ? "wave-bar-4" : "h-2.5"}`}></span>
+      {bars >= 5 && (
+        <span className={`w-0.5 rounded-full bg-current ${animated ? "wave-bar-5" : "h-1.5"}`}></span>
+      )}
+    </span>
+  );
+}
+
 export default function Home() {
-  // Global Language Preference
-  const [selectedLanguage, setSelectedLanguage] = useState<string>("auto");
+  // Global Language Preference (13 Languages + Auto-detect)
+  const [selectedLanguage, setSelectedLanguage] = useState<LanguageCode>("auto");
+  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
+  const langMenuRef = useRef<HTMLDivElement>(null);
+
+  // Active Feature Tab: "voice" | "image" | "document"
+  const [activeTab, setActiveTab] = useState<"voice" | "image" | "document">("voice");
+  // Desktop Multimodal Tool Switcher: "image" | "document"
+  const [desktopToolTab, setDesktopToolTab] = useState<"image" | "document">("image");
 
   // Voice Assistant states
   const [recording, setRecording] = useState(false);
@@ -166,9 +199,8 @@ export default function Home() {
 
   // Image understanding states
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imageQuestion, setImageQuestion] = useState(
-    "What does this image mean?"
-  );
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string>("");
+  const [imageQuestion, setImageQuestion] = useState("");
   const [imageAnswer, setImageAnswer] = useState("");
   const [understandStatus, setUnderstandStatus] = useState<
     "idle" | "understanding" | "preparing"
@@ -177,19 +209,16 @@ export default function Home() {
   const [understandAudioLoading, setUnderstandAudioLoading] = useState(false);
   const [understandAudioUrl, setUnderstandAudioUrl] = useState("");
   const [understandAudioError, setUnderstandAudioError] = useState("");
+  const [isImageDragging, setIsImageDragging] = useState(false);
   const understandAudioAbortRef = useRef<AbortController | null>(null);
   const understandRequestAbortRef = useRef<AbortController | null>(null);
   const activeRequestIdRef = useRef<number>(0);
 
   // Document understanding states
   const [docFile, setDocFile] = useState<File | null>(null);
-  const [docQuestion, setDocQuestion] = useState(
-    "Summarise this document and explain the key dates, amounts and warnings."
-  );
+  const [docQuestion, setDocQuestion] = useState("");
   const [docAnswer, setDocAnswer] = useState("");
-  const [docStatus, setDocStatus] = useState<
-    "idle" | "reading" | "analyzing"
-  >("idle");
+  const [docStatus, setDocStatus] = useState<"idle" | "reading" | "analyzing">("idle");
   const [docError, setDocError] = useState("");
   const [docAudioLoading, setDocAudioLoading] = useState(false);
   const [docAudioUrl, setDocAudioUrl] = useState("");
@@ -198,6 +227,7 @@ export default function Home() {
     numPages?: number;
     fileType?: string;
     isScanned?: boolean;
+    model?: string;
   } | null>(null);
   const [isDocDragging, setIsDocDragging] = useState(false);
   const docAudioAbortRef = useRef<AbortController | null>(null);
@@ -208,6 +238,21 @@ export default function Home() {
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
+  // Translations for current selected language
+  const t: TranslationStrings = getTranslations(selectedLanguage);
+  const currentLangMeta = getLanguageMeta(selectedLanguage);
+
+  // Close language menu on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (langMenuRef.current && !langMenuRef.current.contains(event.target as Node)) {
+        setIsLangMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
   // Determine effective language parameter for API calls
   function getEffectiveLanguage(): string {
     if (selectedLanguage !== "auto") {
@@ -216,19 +261,21 @@ export default function Home() {
     return detectedLanguage || "en-IN";
   }
 
-  // Release generated audio URLs when they are replaced or the page unmounts.
+  // Release generated audio URLs and previews when replaced or unmounted
   useEffect(() => {
     return () => {
       if (voiceAudioUrl) URL.revokeObjectURL(voiceAudioUrl);
       if (understandAudioUrl) URL.revokeObjectURL(understandAudioUrl);
       if (docAudioUrl) URL.revokeObjectURL(docAudioUrl);
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
     };
-  }, [voiceAudioUrl, understandAudioUrl, docAudioUrl]);
+  }, [voiceAudioUrl, understandAudioUrl, docAudioUrl, imagePreviewUrl]);
 
-  // Send audio to our backend for Prisma transcription.
-  async function sendToGnani(audio: Blob, filename: string) {
+  // Send audio to backend for transcription (routes to Gnani Prisma or Gemini Transcribe)
+  async function sendToSpeechToText(audio: Blob, filename: string) {
     const formData = new FormData();
     formData.append("audio", audio, filename);
+    formData.append("language", selectedLanguage);
 
     const response = await fetch("/api/speech-to-text", {
       method: "POST",
@@ -267,7 +314,7 @@ export default function Home() {
     setAssistantResponse("");
   }
 
-  // Convert the current transcript to an AI explanation and speak with Gnani Timbre independently.
+  // Ask Sunoza and speak response
   async function speakTranscript() {
     if (!transcript.trim() || transcript === "No speech detected.") return;
 
@@ -289,7 +336,6 @@ export default function Home() {
     }
 
     try {
-      // 1. Ask Gemini to answer the user's message
       const chatResponse = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -319,21 +365,16 @@ export default function Home() {
 
       if (currentRequestId !== activeVoiceRequestIdRef.current) return;
 
-      // 2. Immediately display Gemini's answer to the user
       setAssistantResponse(answer);
       setVoiceThinking(false);
 
-      // 3. Generate Timbre voice asynchronously without blocking the user
       generateVoiceAudio(answer, currentRequestId);
-
     } catch (err) {
       if (currentRequestId !== activeVoiceRequestIdRef.current) return;
 
       console.error("Sunoza response error:", err);
       setVoiceAudioError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong."
+        err instanceof Error ? err.message : "Something went wrong."
       );
       setVoiceThinking(false);
     }
@@ -415,6 +456,10 @@ export default function Home() {
     }
     activeRequestIdRef.current += 1;
 
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+      setImagePreviewUrl("");
+    }
     setImageFile(null);
     setImageAnswer("");
     setUnderstandStatus("idle");
@@ -493,7 +538,10 @@ export default function Home() {
 
       const formData = new FormData();
       formData.append("image", processedImage);
-      formData.append("question", imageQuestion);
+      formData.append(
+        "question",
+        imageQuestion || "Explain what is shown in this image clearly."
+      );
       formData.append("language", getEffectiveLanguage());
 
       const response = await fetch("/api/understand", {
@@ -510,8 +558,8 @@ export default function Home() {
 
       if (!response.ok) {
         throw new Error(
-          result.details ||
           result.error ||
+          result.details ||
           "Could not understand the image."
         );
       }
@@ -526,18 +574,14 @@ export default function Home() {
       setUnderstandStatus("idle");
 
       generateUnderstandAudio(answer, currentRequestId);
-
     } catch (err) {
       if (requestController.signal.aborted || currentRequestId !== activeRequestIdRef.current) {
         return;
       }
 
       console.error("Image understanding error:", err);
-
       setUnderstandError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong."
+        err instanceof Error ? err.message : "Something went wrong."
       );
       setUnderstandStatus("idle");
     } finally {
@@ -578,14 +622,13 @@ export default function Home() {
       if (!ttsResponse.ok) {
         const ttsResult = await ttsResponse.json().catch(() => ({}));
         throw new Error(
-          ttsResult.details ||
           ttsResult.error ||
+          ttsResult.details ||
           "Could not generate spoken explanation."
         );
       }
 
       const audioBlob = await ttsResponse.blob();
-
       if (!audioBlob.size) {
         throw new Error("Generated audio is empty.");
       }
@@ -602,9 +645,7 @@ export default function Home() {
 
       console.error("Understand audio generation error:", err);
       setUnderstandAudioError(
-        err instanceof Error
-          ? err.message
-          : "Could not generate audio."
+        err instanceof Error ? err.message : "Could not generate audio."
       );
     } finally {
       if (!controller.signal.aborted && targetRequestId === activeRequestIdRef.current) {
@@ -617,7 +658,7 @@ export default function Home() {
   // Document understanding function
   async function understandDocument() {
     if (!docFile) {
-      setDocError("Please select a document (PDF, TXT, or Image) first.");
+      setDocError("Please select a document (PDF, TXT, MD, CSV, or Image) first.");
       return;
     }
 
@@ -662,7 +703,10 @@ export default function Home() {
 
       const formData = new FormData();
       formData.append("file", uploadFile);
-      formData.append("question", docQuestion);
+      formData.append(
+        "question",
+        docQuestion || "Summarise this document and explain the key dates, amounts and warnings."
+      );
       formData.append("language", getEffectiveLanguage());
 
       const response = await fetch("/api/document", {
@@ -679,8 +723,8 @@ export default function Home() {
 
       if (!response.ok) {
         throw new Error(
-          result.details ||
           result.error ||
+          result.details ||
           "Could not understand the document."
         );
       }
@@ -695,11 +739,11 @@ export default function Home() {
         numPages: result.numPages,
         fileType: result.fileType,
         isScanned: result.isScanned,
+        model: result.model,
       });
       setDocStatus("idle");
 
       generateDocAudio(answer, currentRequestId);
-
     } catch (err) {
       if (requestController.signal.aborted || currentRequestId !== activeDocRequestIdRef.current) {
         return;
@@ -748,8 +792,8 @@ export default function Home() {
       if (!ttsResponse.ok) {
         const ttsResult = await ttsResponse.json().catch(() => ({}));
         throw new Error(
-          ttsResult.details ||
           ttsResult.error ||
+          ttsResult.details ||
           "Could not generate spoken explanation."
         );
       }
@@ -781,7 +825,7 @@ export default function Home() {
     }
   }
 
-  // Start microphone recording.
+  // Start microphone recording
   async function startRecording() {
     try {
       setError("");
@@ -794,7 +838,9 @@ export default function Home() {
       }
 
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Microphone access is not available in this browser. Please check your browser permissions.");
+        throw new Error(
+          "Microphone access is not available in this browser. Please check permissions."
+        );
       }
 
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -842,7 +888,7 @@ export default function Home() {
     }
   }
 
-  // Stop recording, convert it to WAV and send it to Prisma.
+  // Stop recording, convert to WAV and route to speech provider
   async function stopRecording() {
     const recorder = recorderRef.current;
     if (!recorder) return;
@@ -852,11 +898,7 @@ export default function Home() {
     setError("");
 
     const stopped = new Promise<void>((resolve) => {
-      recorder.addEventListener(
-        "stop",
-        () => resolve(),
-        { once: true }
-      );
+      recorder.addEventListener("stop", () => resolve(), { once: true });
       recorder.stop();
     });
 
@@ -882,12 +924,12 @@ export default function Home() {
 
         if (audioBuffer.duration > 30) {
           throw new Error(
-            "Recording is longer than 30 seconds. Please try again."
+            "Recording is longer than 30 seconds. Please try a shorter message."
           );
         }
 
         const wavAudio = audioBufferToWav(audioBuffer);
-        await sendToGnani(wavAudio, "sunoza-recording.wav");
+        await sendToSpeechToText(wavAudio, "sunoza-voice.wav");
       } finally {
         await context.close();
       }
@@ -906,7 +948,7 @@ export default function Home() {
     }
   }
 
-  // Upload an existing supported audio recording.
+  // Upload an existing supported audio recording
   async function handleFileUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -922,7 +964,7 @@ export default function Home() {
     }
 
     try {
-      await sendToGnani(file, file.name);
+      await sendToSpeechToText(file, file.name);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Audio upload failed."
@@ -933,697 +975,1027 @@ export default function Home() {
     }
   }
 
-  // Derive mic visual state
+  // Determine current mic status
   const micState = loading
-    ? ("processing" as const)
+    ? "processing"
     : recording
-      ? ("recording" as const)
-      : voiceThinking
-        ? ("thinking" as const)
-        : voiceAudioLoading
-          ? ("speaking" as const)
-          : ("idle" as const);
+    ? "recording"
+    : voiceThinking
+    ? "thinking"
+    : voiceAudioLoading
+    ? "speaking"
+    : "idle";
 
   return (
-    <main className="min-h-screen bg-[#F7F5EF] px-4 py-8 text-[#252B28] sm:px-6 md:py-12">
-      <div className="mx-auto max-w-2xl">
+    <main className="min-h-screen bg-[#F3EFE6] px-4 py-6 text-[#252A31] sm:px-6 sm:py-8 lg:px-8 lg:py-12">
+      <div className="mx-auto max-w-6xl w-full">
 
-        {/* ─── Header ─── */}
-        <header className="mb-10 flex items-center justify-between">
+        {/* ─── HEADER ─── */}
+        <header className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-[#DDD6C9]/70 pb-6 sm:mb-10">
           <div className="flex items-center gap-3.5">
-            {/* Logo mark */}
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#315B49] shadow-sm">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Z" fill="none" stroke="white" strokeWidth="1.5"/>
-                <path d="M12 6a4 4 0 0 1 4 4c0 2.21-1.79 4-4 4" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-                <path d="M12 14v4" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-                <circle cx="12" cy="21" r="1" fill="white"/>
-              </svg>
+            {/* Logo Mark: Indigo tile with "S", accent dot & soundwave motif */}
+            <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-[#33446A] shadow-xs">
+              <span className="font-bold text-lg text-[#FFFCF7]">S</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-[#D99B37] -ml-0.5 mt-2"></span>
+              {/* Subtle soundwave brand accent inside badge */}
+              <span className="absolute right-1.5 flex items-center gap-0.5" aria-hidden="true">
+                <span className="h-1.5 w-0.5 rounded-full bg-[#D99B37]/70"></span>
+                <span className="h-3.5 w-0.5 rounded-full bg-[#FFFCF7]/90"></span>
+                <span className="h-2 w-0.5 rounded-full bg-[#D99B37]/70"></span>
+              </span>
             </div>
 
             <div>
-              <h1 className="text-xl font-semibold tracking-tight text-[#315B49]">Sunoza</h1>
-              <p className="text-[13px] text-[#64806E]">
-                Technology that understands you.
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-extrabold tracking-tight text-[#33446A]">
+                  {t.appName}
+                </h1>
+                <SoundwaveMotif bars={4} height="h-3" color="text-[#D99B37]" />
+              </div>
+              <p className="text-xs font-medium text-[#485E4B]">
+                {t.tagline}
               </p>
             </div>
           </div>
 
-          {/* Language Selector */}
-          <div className="flex items-center gap-2 rounded-full border border-[#E5E6DE] bg-white px-3.5 py-2 shadow-sm">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0 text-[#64806E]" aria-hidden="true">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5"/>
-              <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2Z" stroke="currentColor" strokeWidth="1.5"/>
-            </svg>
-            <select
-              id="language-select"
-              aria-label="Language"
-              value={selectedLanguage}
-              onChange={(e) => setSelectedLanguage(e.target.value)}
-              className="select-clean bg-transparent text-sm font-medium text-[#315B49] outline-none cursor-pointer"
+          {/* ─── MULTILINGUAL LANGUAGE SELECTOR (13 Languages + Auto) ─── */}
+          <div className="relative" ref={langMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
+              aria-expanded={isLangMenuOpen}
+              aria-haspopup="listbox"
+              aria-label="Select language"
+              className="inline-flex items-center gap-2 rounded-full border border-[#DDD6C9] bg-[#FFFCF7] px-4 py-2 text-xs font-semibold text-[#33446A] shadow-xs transition hover:border-[#33446A] focus-visible:outline-2 focus-visible:outline-[#33446A]"
             >
-              <option value="auto">Auto-detect</option>
-              <option value="en-IN">English</option>
-              <option value="hi-IN">हिन्दी</option>
-              <option value="te-IN">తెలుగు</option>
-            </select>
+              <SoundwaveMotif bars={3} height="h-3" color="text-[#D99B37]" />
+              <span className="font-bold tracking-tight text-xs">{currentLangMeta.nativeName}</span>
+              {currentLangMeta.code !== "auto" && (
+                <span className="text-xs text-[#485E4B] hidden sm:inline">({currentLangMeta.englishName})</span>
+              )}
+              <svg
+                width="10"
+                height="6"
+                viewBox="0 0 10 6"
+                fill="none"
+                className={`text-[#485E4B] transition-transform duration-150 ${isLangMenuOpen ? "rotate-180" : ""}`}
+                aria-hidden="true"
+              >
+                <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            {isLangMenuOpen && (
+              <div
+                role="listbox"
+                className="absolute right-0 z-50 mt-2 w-72 sm:w-80 max-w-[calc(100vw-2rem)] max-h-[75vh] sm:max-h-96 overflow-y-auto rounded-2xl border border-[#DDD6C9] bg-[#FFFCF7] p-2 shadow-xl"
+              >
+                {/* Auto-detect option */}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={selectedLanguage === "auto"}
+                  onClick={() => {
+                    setSelectedLanguage("auto");
+                    setIsLangMenuOpen(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-xs transition ${
+                    selectedLanguage === "auto"
+                      ? "bg-[#33446A] font-semibold text-[#FFFCF7]"
+                      : "text-[#252A31] hover:bg-[#F3EFE6]"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <SoundwaveMotif bars={3} color={selectedLanguage === "auto" ? "text-[#D99B37]" : "text-[#485E4B]"} />
+                    <div>
+                      <span className="font-bold text-sm">Auto-detect</span>
+                      <p className="text-xs opacity-80">Automatic Indian speech detection</p>
+                    </div>
+                  </div>
+                  {selectedLanguage === "auto" && <span className="font-bold">✓</span>}
+                </button>
+
+                {/* Indian Languages Section (Gnani AI) */}
+                <div className="my-2 border-t border-[#ECE7DC] pt-2 px-3 flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#485E4B]">
+                    Indian Languages (Gnani AI)
+                  </span>
+                  <span className="text-xs font-semibold text-[#D99B37] bg-[#FBF4E7] px-2 py-0.5 rounded-full">10 Languages</span>
+                </div>
+
+                {INDIAN_LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.code}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedLanguage === lang.code}
+                    onClick={() => {
+                      setSelectedLanguage(lang.code);
+                      setIsLangMenuOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition ${
+                      selectedLanguage === lang.code
+                        ? "bg-[#33446A] font-semibold text-[#FFFCF7]"
+                        : "text-[#252A31] hover:bg-[#F3EFE6]"
+                    }`}
+                  >
+                    <div>
+                      <span className="font-bold text-sm tracking-wide">{lang.nativeName}</span>
+                      <span className="ml-2 text-xs opacity-75">({lang.englishName})</span>
+                    </div>
+                    {selectedLanguage === lang.code && <span className="font-bold">✓</span>}
+                  </button>
+                ))}
+
+                {/* International Languages Section (Gemini) */}
+                <div className="my-2 border-t border-[#ECE7DC] pt-2 px-3 flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[#485E4B]">
+                    International Languages (Gemini)
+                  </span>
+                  <span className="text-xs font-semibold text-[#33446A] bg-[#ECE7DC] px-2 py-0.5 rounded-full">3 Languages</span>
+                </div>
+
+                {INTERNATIONAL_LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.code}
+                    type="button"
+                    role="option"
+                    aria-selected={selectedLanguage === lang.code}
+                    onClick={() => {
+                      setSelectedLanguage(lang.code);
+                      setIsLangMenuOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-xs transition ${
+                      selectedLanguage === lang.code
+                        ? "bg-[#33446A] font-semibold text-[#FFFCF7]"
+                        : "text-[#252A31] hover:bg-[#F3EFE6]"
+                    }`}
+                  >
+                    <div>
+                      <span className="font-bold text-sm tracking-wide">{lang.nativeName}</span>
+                      <span className="ml-2 text-xs opacity-75">({lang.englishName})</span>
+                    </div>
+                    {selectedLanguage === lang.code && <span className="font-bold">✓</span>}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </header>
 
-        {/* ─── Section 1: Voice Assistant ─── */}
-        <section className="rounded-3xl border border-[#E5E6DE] bg-white p-6 shadow-sm sm:p-10">
-          <div className="text-center">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.2em] text-[#64806E]">
-              Voice assistant
-            </p>
-
-            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">How can I help you?</h2>
-
-            <p className="mt-2 text-[15px] text-[#64806E]">
-              Speak naturally in any language. Sunoza listens, understands and responds.
-            </p>
+        {/* ─── SINGLE MAIN HERO SECTION ─── */}
+        <section className="mb-8 sm:mb-10 text-center sm:text-left">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#33446A]">
+            {t.welcomeTitle}
+          </h1>
+          <p className="mt-2.5 text-sm sm:text-base lg:text-lg leading-relaxed text-[#485E4B] max-w-2xl">
+            {t.welcomeSubtitle}
+          </p>
+          {/* Subtle soundwave motif under hero */}
+          <div className="mt-4 flex items-center justify-center sm:justify-start gap-1.5 text-[#D99B37]" aria-hidden="true">
+            <span className="h-1 w-6 rounded-full bg-[#D99B37]/30"></span>
+            <span className="h-1 w-2 rounded-full bg-[#D99B37]"></span>
+            <span className="h-1.5 w-0.5 rounded-full bg-[#33446A]/40"></span>
+            <span className="h-3 w-0.5 rounded-full bg-[#33446A]"></span>
+            <span className="h-4.5 w-0.5 rounded-full bg-[#D99B37]"></span>
+            <span className="h-3 w-0.5 rounded-full bg-[#33446A]"></span>
+            <span className="h-1.5 w-0.5 rounded-full bg-[#33446A]/40"></span>
+            <span className="h-1 w-2 rounded-full bg-[#D99B37]"></span>
+            <span className="h-1 w-6 rounded-full bg-[#D99B37]/30"></span>
           </div>
+        </section>
 
-          {/* Mic Button Area */}
-          <div className="my-10 flex flex-col items-center">
-            <button
-              type="button"
-              onClick={recording ? stopRecording : startRecording}
-              disabled={loading || voiceThinking}
-              aria-label={recording ? "Stop recording" : "Start recording"}
-              className={`relative flex h-[88px] w-[88px] items-center justify-center rounded-full transition-all duration-200 ${
-                micState === "recording"
-                  ? "bg-red-600 mic-recording"
-                  : micState === "processing" || micState === "thinking"
-                    ? "bg-[#315B49] opacity-70 cursor-wait"
-                    : "bg-[#315B49] mic-idle"
-              } disabled:cursor-not-allowed`}
-            >
-              {/* Mic / Stop Icon */}
-              {micState === "recording" ? (
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="white" aria-hidden="true">
-                  <rect x="6" y="6" width="12" height="12" rx="2"/>
-                </svg>
-              ) : micState === "processing" || micState === "thinking" ? (
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className="animate-spin" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="2" strokeDasharray="50" strokeDashoffset="15" strokeLinecap="round"/>
-                </svg>
-              ) : (
-                <svg width="30" height="30" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <rect x="9" y="2" width="6" height="12" rx="3" fill="white"/>
-                  <path d="M5 11a7 7 0 0 0 14 0" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
-                  <path d="M12 18v3" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
-                  <path d="M9 21h6" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
-                </svg>
-              )}
-            </button>
+        {/* ─── MOBILE FEATURE TABS (Hidden on Desktop lg:) ─── */}
+        <nav
+          aria-label="Feature sections"
+          className="mb-6 flex lg:hidden rounded-2xl border border-[#DDD6C9] bg-[#FFFCF7] p-1.5 shadow-xs"
+        >
+          <button
+            type="button"
+            onClick={() => setActiveTab("voice")}
+            aria-selected={activeTab === "voice"}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition ${
+              activeTab === "voice"
+                ? "bg-[#33446A] text-[#FFFCF7] shadow-xs"
+                : "text-[#485E4B] hover:text-[#252A31]"
+            }`}
+          >
+            <SoundwaveMotif bars={3} height="h-3" color={activeTab === "voice" ? "text-[#D99B37]" : "text-current"} />
+            <span>{t.tabVoice}</span>
+          </button>
 
-            <p className="mt-5 text-base font-medium text-[#252B28]" aria-live="polite">
-              {micState === "processing"
-                ? "Processing your voice…"
-                : micState === "recording"
-                  ? "Listening — tap to stop"
-                  : micState === "thinking"
-                    ? "Thinking…"
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("image");
+              setDesktopToolTab("image");
+            }}
+            aria-selected={activeTab === "image"}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition ${
+              activeTab === "image"
+                ? "bg-[#33446A] text-[#FFFCF7] shadow-xs"
+                : "text-[#485E4B] hover:text-[#252A31]"
+            }`}
+          >
+            <span>{t.tabImage}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("document");
+              setDesktopToolTab("document");
+            }}
+            aria-selected={activeTab === "document"}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold transition ${
+              activeTab === "document"
+                ? "bg-[#33446A] text-[#FFFCF7] shadow-xs"
+                : "text-[#485E4B] hover:text-[#252A31]"
+            }`}
+          >
+            <span>{t.tabDocument}</span>
+          </button>
+        </nav>
+
+        {/* ─── MAIN ASYMMETRIC GRID (Desktop: 7-col Voice + 5-col Multimodal) ─── */}
+        <div className="lg:grid lg:grid-cols-12 lg:gap-8 items-start">
+
+          {/* ═════════════════════════════════════════════════════════ */}
+          {/* PRIMARY COLUMN (lg:col-span-7): TALK TO SUNOZA            */}
+          {/* ═════════════════════════════════════════════════════════ */}
+          <div className={`lg:col-span-7 ${activeTab === "voice" ? "block" : "hidden lg:block"}`}>
+            <section className="rounded-3xl border border-[#DDD6C9] bg-[#FFFCF7] p-6 sm:p-8 lg:p-9 shadow-xs relative overflow-hidden">
+              {/* Card Header */}
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ECE7DC] pb-4 mb-6">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-[#33446A]">
+                    {t.tabVoice}
+                  </h2>
+                  <p className="mt-1 text-xs text-[#485E4B]">
+                    {t.micSupportHint}
+                  </p>
+                </div>
+
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F3EFE6] px-3 py-1 text-xs font-bold text-[#33446A]">
+                  <SoundwaveMotif bars={4} height="h-3" color="text-[#D99B37]" animated={micState === "recording" || micState === "speaking"} />
+                  <span>Voice Assistant</span>
+                </span>
+              </div>
+
+              {/* Prominent Microphone Control Area with Waveform Motif */}
+              <div className="my-8 sm:my-10 flex flex-col items-center">
+                {/* Live Recording Indicator Pill for elderly and accessibility ease */}
+                {micState === "recording" && (
+                  <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-[#B86F58]/15 border border-[#B86F58]/35 px-4 py-1.5 text-xs font-bold text-[#B86F58] animate-pulse shadow-2xs">
+                    <span className="h-2 w-2 rounded-full bg-[#B86F58]"></span>
+                    <span>Listening… Tap microphone when finished</span>
+                  </div>
+                )}
+
+                <div className="relative flex items-center justify-center">
+                  {/* Listening Waveform Animation */}
+                  {micState === "recording" && (
+                    <div className="absolute flex items-center justify-center gap-1.5 -top-10" aria-hidden="true">
+                      <span className="w-1.5 h-6 rounded-full bg-[#B86F58] wave-bar-1"></span>
+                      <span className="w-1.5 h-10 rounded-full bg-[#B86F58] wave-bar-2"></span>
+                      <span className="w-1.5 h-14 rounded-full bg-[#D99B37] wave-bar-3"></span>
+                      <span className="w-1.5 h-10 rounded-full bg-[#B86F58] wave-bar-4"></span>
+                      <span className="w-1.5 h-6 rounded-full bg-[#B86F58] wave-bar-5"></span>
+                    </div>
+                  )}
+
+                  {/* Speaking Waveform Animation */}
+                  {micState === "speaking" && (
+                    <div className="absolute flex items-center justify-center gap-1.5 -top-9" aria-hidden="true">
+                      <span className="w-1 h-5 rounded-full bg-[#D99B37] speak-bar-1"></span>
+                      <span className="w-1 h-8 rounded-full bg-[#33446A] speak-bar-2"></span>
+                      <span className="w-1 h-10 rounded-full bg-[#D99B37] speak-bar-3"></span>
+                      <span className="w-1 h-6 rounded-full bg-[#33446A] speak-bar-4"></span>
+                    </div>
+                  )}
+
+                  {/* 96px Interactive Mic Button */}
+                  <button
+                    type="button"
+                    onClick={recording ? stopRecording : startRecording}
+                    disabled={loading || voiceThinking}
+                    aria-label={recording ? "Stop recording voice" : "Start recording voice"}
+                    className={`relative flex h-24 w-24 items-center justify-center rounded-full transition-all duration-200 ${
+                      micState === "recording"
+                        ? "bg-[#B86F58] mic-recording-btn text-[#FFFCF7]"
+                        : micState === "processing" || micState === "thinking"
+                        ? "bg-[#33446A] opacity-75 cursor-wait text-[#FFFCF7]"
+                        : "bg-[#33446A] mic-idle-btn text-[#FFFCF7]"
+                    } disabled:cursor-not-allowed`}
+                  >
+                    {micState === "recording" ? (
+                      <svg width="34" height="34" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <rect x="7" y="7" width="10" height="10" rx="2" />
+                      </svg>
+                    ) : micState === "processing" || micState === "thinking" ? (
+                      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" className="animate-spin" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="50" strokeDashoffset="15" strokeLinecap="round" />
+                      </svg>
+                    ) : (
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <rect x="9" y="2" width="6" height="12" rx="3" fill="currentColor" />
+                        <path d="M5 11a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M12 18v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        <path d="M9 21h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+
+                {/* Status & Short Clear Instructions */}
+                <p className="mt-5 text-xl font-bold text-[#252A31]" aria-live="polite">
+                  {micState === "processing"
+                    ? t.micProcessing
+                    : micState === "recording"
+                    ? t.micRecording
+                    : micState === "thinking"
+                    ? t.micThinking
                     : micState === "speaking"
-                      ? "Generating audio…"
-                      : "Tap the mic to speak"}
-            </p>
+                    ? t.micSpeaking
+                    : t.micIdle}
+                </p>
 
-            <p className="mt-1.5 text-[13px] text-[#64806E]">
-              {micState === "recording"
-                ? "Speak clearly, up to 30 seconds"
-                : "Supports Hindi, English, Telugu and more"}
-            </p>
-          </div>
+                <p className="mt-1 text-sm text-[#485E4B]">
+                  {t.micInstruction}
+                </p>
+              </div>
 
-          {/* Processing indicator */}
-          {loading && (
-            <div role="status" aria-live="polite" className="mb-5 flex items-center justify-center gap-2 text-sm text-[#315B49]">
-              <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#315B49]"></span>
-              Transcribing with Gnani Prisma…
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div
-              role="alert"
-              className="mb-5 rounded-2xl border border-red-100 bg-red-50 px-5 py-4 text-sm text-red-700"
-            >
-              {error}
-            </div>
-          )}
-
-          {/* Transcript result */}
-          {transcript && (
-            <div className="rounded-2xl bg-[#E8EFE8] p-5 sm:p-6">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.15em] text-[#315B49]">
-                What I heard
-              </p>
-
-              <p className="text-[17px] leading-relaxed">{transcript}</p>
-
-              <p className="mt-3 text-xs text-[#64806E]">
-                Language: {detectedLanguage || (selectedLanguage !== "auto" ? selectedLanguage : "Auto-detect")}
-              </p>
-
-              {/* Sunoza response */}
-              {assistantResponse && (
+              {/* Error Banner */}
+              {error && (
                 <div
-                  className="mt-4 rounded-xl bg-white px-5 py-4 shadow-sm"
-                  aria-live="polite"
-                  role="region"
-                  aria-label="Assistant answer"
+                  role="alert"
+                  className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
                 >
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#315B49]">
-                    Sunoza says
-                  </p>
-
-                  <p className="text-[15px] leading-relaxed text-[#252B28]">
-                    {assistantResponse}
-                  </p>
+                  {error}
                 </div>
               )}
 
-              {/* Ask / Audio pipeline */}
-              <div className="mt-4 border-t border-[#D5E1D6] pt-4">
+              {/* Transcript & Response Area */}
+              {transcript && (
+                <div className="rounded-2xl border border-[#DDD6C9] bg-[#F3EFE6] p-5 sm:p-6 mb-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <SoundwaveMotif bars={3} height="h-3" color="text-[#33446A]" />
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#33446A]">
+                        {t.whatIHerd}
+                      </span>
+                    </div>
+                    <span className="rounded-full bg-[#ECE7DC] px-2.5 py-0.5 text-xs font-semibold text-[#485E4B]">
+                      {currentLangMeta.code !== "auto" ? currentLangMeta.nativeName : detectedLanguage || "Auto"}
+                    </span>
+                  </div>
+
+                  <p className="text-base leading-relaxed text-[#252A31] break-words">{transcript}</p>
+
+                  {/* Assistant Response Card */}
+                  {assistantResponse && (
+                    <div
+                      className="mt-4 rounded-xl border border-[#DDD6C9] bg-[#FFFCF7] p-5 shadow-xs"
+                      aria-live="polite"
+                      role="region"
+                      aria-label="Assistant answer"
+                    >
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <SoundwaveMotif bars={3} height="h-3" color="text-[#D99B37]" />
+                        <p className="text-xs font-bold uppercase tracking-wider text-[#D99B37]">
+                          {t.sunozaSays}
+                        </p>
+                      </div>
+                      <p className="text-base leading-relaxed text-[#252A31] break-words">
+                        {assistantResponse}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Action Controls */}
+                  <div className="mt-4 border-t border-[#DDD6C9] pt-4">
+                    <button
+                      type="button"
+                      onClick={speakTranscript}
+                      disabled={voiceThinking || loading}
+                      className="inline-flex items-center gap-2 rounded-xl bg-[#33446A] px-5 py-3 text-sm font-semibold text-[#FFFCF7] shadow-xs transition hover:bg-[#263350] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {voiceThinking ? (
+                        <>
+                          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                          {t.micThinking}
+                        </>
+                      ) : (
+                        <>
+                          <SoundwaveMotif bars={3} height="h-3" color="text-[#D99B37]" />
+                          {t.askSunoza}
+                        </>
+                      )}
+                    </button>
+
+                    {voiceAudioLoading && (
+                      <div className="mt-3 flex items-center gap-2 text-xs text-[#485E4B]" aria-live="polite">
+                        <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#D99B37]"></span>
+                        {t.audioGenerating}
+                      </div>
+                    )}
+
+                    {voiceAudioError && (
+                      <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-900 border border-amber-200" role="alert">
+                        <span>{voiceAudioError}</span>
+                        <button
+                          type="button"
+                          onClick={() => generateVoiceAudio(assistantResponse)}
+                          disabled={voiceAudioLoading}
+                          aria-label="Retry audio generation"
+                          className="ml-3 font-semibold underline hover:text-amber-950 focus:outline-none"
+                        >
+                          {t.retry}
+                        </button>
+                      </div>
+                    )}
+
+                    {voiceAudioUrl && (
+                      <div className="mt-4 pt-3 border-t border-[#DDD6C9]/60">
+                        <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-[#33446A]">
+                          <SoundwaveMotif bars={4} height="h-3" color="text-[#D99B37]" animated={true} />
+                          <span>Spoken Audio Response</span>
+                        </div>
+                        <audio
+                          controls
+                          preload="metadata"
+                          src={voiceAudioUrl}
+                          className="w-full"
+                        >
+                          Your browser does not support audio playback.
+                        </audio>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Compact Audio File Upload Bar */}
+              <div className="mt-6 border-t border-[#ECE7DC] pt-5">
+                <label
+                  htmlFor="audio-upload"
+                  className={`flex cursor-pointer items-center justify-between rounded-2xl border border-[#DDD6C9] bg-[#FAF7F0] px-4 py-3 text-xs transition hover:border-[#33446A] hover:bg-[#F3EFE6] ${
+                    loading || recording || voiceThinking ? "pointer-events-none opacity-50" : ""
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <SoundwaveMotif bars={3} height="h-3.5" color="text-[#485E4B]" />
+                    <div>
+                      <span className="font-semibold text-[#33446A]">{t.orUploadAudio}</span>
+                      <p className="text-xs text-[#485E4B]">{t.audioFormats}</p>
+                    </div>
+                  </div>
+
+                  <span className="rounded-lg bg-[#ECE7DC] px-2.5 py-1 font-semibold text-[#33446A] transition hover:bg-[#DDD6C9]">
+                    Browse
+                  </span>
+
+                  <input
+                    id="audio-upload"
+                    type="file"
+                    accept=".wav,.mp3,.ogg,.flac,.aac,.m4a"
+                    onChange={handleFileUpload}
+                    disabled={loading || recording || voiceThinking}
+                    className="sr-only"
+                  />
+                </label>
+              </div>
+            </section>
+          </div>
+
+          {/* ═════════════════════════════════════════════════════════ */}
+          {/* SECONDARY COLUMN (lg:col-span-5): MULTIMODAL SUITE       */}
+          {/* ═════════════════════════════════════════════════════════ */}
+          <div className={`lg:col-span-5 ${activeTab !== "voice" ? "block" : "hidden lg:block"}`}>
+
+            {/* Desktop Tool Switcher: Image vs Document */}
+            <div className="hidden lg:flex mb-4 rounded-2xl border border-[#DDD6C9] bg-[#FFFCF7] p-1.5 shadow-xs">
+              <button
+                type="button"
+                onClick={() => setDesktopToolTab("image")}
+                aria-selected={desktopToolTab === "image"}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
+                  desktopToolTab === "image"
+                    ? "bg-[#33446A] text-[#FFFCF7] shadow-xs"
+                    : "text-[#485E4B] hover:text-[#252A31]"
+                }`}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                  <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
+                  <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <span>{t.tabImage}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setDesktopToolTab("document")}
+                aria-selected={desktopToolTab === "document"}
+                className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
+                  desktopToolTab === "document"
+                    ? "bg-[#33446A] text-[#FFFCF7] shadow-xs"
+                    : "text-[#485E4B] hover:text-[#252A31]"
+                }`}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                  <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                </svg>
+                <span>{t.tabDocument}</span>
+              </button>
+            </div>
+
+            {/* ─── TOOL A: IMAGE UNDERSTANDING ─── */}
+            <div className={`${activeTab === "document" ? "hidden lg:hidden" : (desktopToolTab === "image" || activeTab === "image" ? "block" : "hidden lg:hidden")}`}>
+              <section className="rounded-3xl border border-[#DDD6C9] bg-[#FFFCF7] p-6 sm:p-7 shadow-xs">
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-[#ECE7DC] pb-3 mb-4">
+                  <div>
+                    <h2 className="text-xl font-bold tracking-tight text-[#33446A]">
+                      {t.imageSectionTitle}
+                    </h2>
+                    <p className="mt-0.5 text-xs text-[#485E4B]">
+                      {t.imageSectionDesc}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-[#F3EFE6] px-2.5 py-0.5 text-xs font-bold text-[#33446A]">
+                    Visual AI
+                  </span>
+                </div>
+
+                {/* Compact Drag & Drop Area */}
+                <div
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Upload an image"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      document.getElementById("image-upload")?.click();
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsImageDragging(true);
+                  }}
+                  onDragLeave={() => setIsImageDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsImageDragging(false);
+                    const droppedFile = e.dataTransfer.files?.[0];
+                    if (droppedFile) {
+                      if (["image/jpeg", "image/png", "image/webp"].includes(droppedFile.type)) {
+                        if (understandRequestAbortRef.current) understandRequestAbortRef.current.abort();
+                        if (understandAudioAbortRef.current) understandAudioAbortRef.current.abort();
+                        activeRequestIdRef.current += 1;
+                        setUnderstandStatus("idle");
+                        if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+                        setImageFile(droppedFile);
+                        setImagePreviewUrl(URL.createObjectURL(droppedFile));
+                        setImageAnswer("");
+                        setUnderstandError("");
+                        setUnderstandAudioError("");
+                        if (understandAudioUrl) {
+                          URL.revokeObjectURL(understandAudioUrl);
+                          setUnderstandAudioUrl("");
+                        }
+                      } else {
+                        setUnderstandError("Unsupported image format. Please upload JPEG, PNG, or WEBP.");
+                      }
+                    }
+                  }}
+                  onClick={() => document.getElementById("image-upload")?.click()}
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-[1.5px] border-dashed px-4 py-5 text-center transition focus-visible:outline-2 focus-visible:outline-[#33446A] ${
+                    isImageDragging
+                      ? "border-[#33446A] bg-[#ECE7DC] scale-[0.99]"
+                      : "border-[#DDD6C9] bg-[#FAF7F0] hover:border-[#33446A] hover:bg-[#F3EFE6]"
+                  }`}
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ECE7DC] text-[#33446A]">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                      <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
+                      <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+
+                  <span className="mt-2.5 text-xs font-bold text-[#33446A]">
+                    {isImageDragging ? "Drop your image here" : t.chooseImage}
+                  </span>
+                  <span className="mt-0.5 text-xs text-[#485E4B]">{t.imageFormatHint}</span>
+
+                  <input
+                    id="image-upload"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      if (understandRequestAbortRef.current) understandRequestAbortRef.current.abort();
+                      if (understandAudioAbortRef.current) understandAudioAbortRef.current.abort();
+                      activeRequestIdRef.current += 1;
+                      setUnderstandStatus("idle");
+
+                      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+                      setImageFile(file);
+                      setImagePreviewUrl(file ? URL.createObjectURL(file) : "");
+                      setImageAnswer("");
+                      setUnderstandError("");
+                      setUnderstandAudioError("");
+                      if (understandAudioUrl) {
+                        URL.revokeObjectURL(understandAudioUrl);
+                        setUnderstandAudioUrl("");
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Selected Image Badge & Preview */}
+                {imageFile && (
+                  <div className="mt-3 flex items-center justify-between rounded-xl border border-[#DDD6C9] bg-[#F3EFE6] px-3.5 py-2.5 text-xs">
+                    <div className="flex items-center gap-2.5 truncate text-[#33446A]">
+                      {imagePreviewUrl && (
+                        <img
+                          src={imagePreviewUrl}
+                          alt="Thumbnail preview"
+                          className="h-10 w-10 rounded-lg object-cover border border-[#DDD6C9] shadow-xs shrink-0"
+                        />
+                      )}
+                      <div className="truncate">
+                        <span className="truncate font-semibold block text-sm">{imageFile.name}</span>
+                        <span className="text-xs text-[#485E4B]">
+                          {(imageFile.size / 1024).toFixed(0)} KB · {imageFile.type.replace("image/", "").toUpperCase()}
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={clearSelectedImage}
+                      aria-label="Remove selected image"
+                      className="ml-2 shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#B86F58] hover:bg-red-50 focus:outline-none transition"
+                    >
+                      {t.remove}
+                    </button>
+                  </div>
+                )}
+
+                {/* Question Input */}
+                <label
+                  htmlFor="image-question"
+                  className="mt-4 mb-1.5 block text-xs font-bold text-[#252A31]"
+                >
+                  {t.imagePromptLabel}
+                </label>
+
+                <textarea
+                  id="image-question"
+                  value={imageQuestion}
+                  onChange={(e) => setImageQuestion(e.target.value)}
+                  placeholder={t.imagePromptPlaceholder}
+                  rows={2}
+                  className="w-full rounded-xl border border-[#DDD6C9] bg-[#F3EFE6] p-3 text-base outline-none transition focus:border-[#33446A] focus:bg-[#FFFCF7] sm:text-xs"
+                />
+
                 <button
                   type="button"
-                  onClick={speakTranscript}
-                  disabled={voiceThinking || loading}
-                  className="inline-flex items-center gap-2 rounded-xl bg-[#315B49] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#254638] disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={understandImage}
+                  disabled={!imageFile || understandStatus !== "idle"}
+                  className="mt-3.5 w-full rounded-xl bg-[#33446A] px-4 py-3 text-xs font-bold text-[#FFFCF7] shadow-xs transition hover:bg-[#263350] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {voiceThinking ? (
-                    <>
-                      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                      Thinking…
-                    </>
+                  {understandStatus === "understanding" || understandStatus === "preparing" ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                      {t.imageExplaining}
+                    </span>
                   ) : (
-                    <>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                        <path d="M11 5L6 9H2v6h4l5 4V5Z" fill="white"/>
-                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-                      </svg>
-                      Ask Sunoza
-                    </>
+                    t.imageExplainBtn
                   )}
                 </button>
 
-                {voiceAudioLoading && (
-                  <div className="mt-3 flex items-center gap-2 text-xs text-[#64806E]" aria-live="polite">
-                    <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#315B49]"></span>
-                    Generating voice…
+                {understandError && (
+                  <div role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                    {understandError}
                   </div>
                 )}
 
-                {voiceAudioError && (
-                  <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-800" role="alert">
-                    <span>{voiceAudioError}</span>
-                    <button
-                      type="button"
-                      onClick={() => generateVoiceAudio(assistantResponse)}
-                      disabled={voiceAudioLoading}
-                      aria-label="Retry voice audio generation"
-                      className="ml-3 font-semibold underline hover:text-amber-900 focus:outline-none"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                )}
-
-                {voiceAudioUrl && (
-                  <audio
-                    controls
-                    preload="metadata"
-                    src={voiceAudioUrl}
-                    className="mt-4 w-full"
+                {/* Image Explanation Result */}
+                {imageAnswer && (
+                  <div
+                    className="mt-4 rounded-2xl border border-[#DDD6C9] bg-[#F3EFE6] p-4 text-xs"
+                    aria-live="polite"
+                    role="region"
+                    aria-label="Image explanation"
                   >
-                    Your browser does not support audio playback.
-                  </audio>
-                )}
-              </div>
-            </div>
-          )}
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <SoundwaveMotif bars={3} height="h-3" color="text-[#D99B37]" />
+                      <p className="font-bold uppercase tracking-wider text-[#D99B37] text-xs">
+                        {t.sunozaSays}
+                      </p>
+                    </div>
 
-          {/* Audio upload */}
-          <div className="mt-7 border-t border-[#E5E6DE] pt-5">
-            <label
-              htmlFor="audio-upload"
-              className={`upload-area flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-[#D5E1D6] bg-[#FAFAF6] px-5 py-5 text-center hover:border-[#315B49] hover:bg-[#F0F4F1] ${
-                loading || recording || voiceThinking ? "pointer-events-none opacity-50" : ""
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-[#64806E]" aria-hidden="true">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  <path d="M17 8l-5-5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M12 3v12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-                <span className="text-sm font-medium text-[#315B49]">Upload an audio recording</span>
-              </div>
+                    <p className="leading-relaxed text-[#252A31] text-sm break-words">{imageAnswer}</p>
 
-              <span className="mt-1.5 text-xs text-[#64806E]">
-                WAV, MP3, OGG, FLAC, AAC, M4A
-              </span>
+                    {/* Audio Playback Controls */}
+                    <div className="mt-3 border-t border-[#DDD6C9] pt-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-[#33446A]">
+                          {t.listenExplanation}
+                        </span>
+                        {understandAudioLoading && (
+                          <span className="flex items-center gap-1.5 text-xs text-[#485E4B]" aria-live="polite">
+                            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#D99B37]"></span>
+                            {t.audioGenerating}
+                          </span>
+                        )}
+                        {understandAudioUrl && !understandAudioLoading && (
+                          <span className="text-xs font-semibold text-[#485E4B]">
+                            ✓ {t.audioReady}
+                          </span>
+                        )}
+                      </div>
 
-              <input
-                id="audio-upload"
-                type="file"
-                accept=".wav,.mp3,.ogg,.flac,.aac,.m4a"
-                onChange={handleFileUpload}
-                disabled={loading || recording || voiceThinking}
-                className="sr-only"
-              />
-            </label>
-          </div>
-        </section>
+                      {understandAudioError && (
+                        <div className="mt-2 flex items-center justify-between rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 border border-amber-200" role="alert">
+                          <span>{understandAudioError}</span>
+                          <button
+                            type="button"
+                            onClick={() => generateUnderstandAudio(imageAnswer)}
+                            disabled={understandAudioLoading}
+                            aria-label="Retry audio generation"
+                            className="ml-2 font-semibold underline hover:text-amber-950 focus:outline-none"
+                          >
+                            {t.retry}
+                          </button>
+                        </div>
+                      )}
 
-        {/* ─── Section 2: Image Understanding ─── */}
-        <section className="mt-6 rounded-3xl border border-[#E5E6DE] bg-white p-6 shadow-sm sm:p-10">
-          <div className="mb-6">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-[#64806E]">
-              Image understanding
-            </p>
-
-            <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
-              Explain a screenshot or photo
-            </h2>
-
-            <p className="mt-1.5 text-sm text-[#64806E]">
-              Upload any image and Sunoza will describe what it sees.
-            </p>
-          </div>
-
-          <label
-            htmlFor="image-upload"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                document.getElementById("image-upload")?.click();
-              }
-            }}
-            className="upload-area flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-[#D5E1D6] bg-[#FAFAF6] px-6 py-8 text-center hover:border-[#315B49] hover:bg-[#F0F4F1] focus-visible:outline-2 focus-visible:outline-[#315B49]"
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#E8EFE8]">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-[#315B49]" aria-hidden="true">
-                <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5"/>
-                <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
-                <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-
-            <span className="mt-3 text-sm font-semibold text-[#315B49]">
-              Choose an image
-            </span>
-
-            <span className="mt-1 text-xs text-[#64806E]">
-              JPEG, PNG or WEBP · Max 8 MB
-            </span>
-
-            <input
-              id="image-upload"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="sr-only"
-              onChange={(event) => {
-                if (understandRequestAbortRef.current) {
-                  understandRequestAbortRef.current.abort();
-                  understandRequestAbortRef.current = null;
-                }
-                if (understandAudioAbortRef.current) {
-                  understandAudioAbortRef.current.abort();
-                  understandAudioAbortRef.current = null;
-                }
-                activeRequestIdRef.current += 1;
-                setUnderstandStatus("idle");
-
-                setImageFile(event.target.files?.[0] ?? null);
-                setImageAnswer("");
-                setUnderstandError("");
-                setUnderstandAudioError("");
-                if (understandAudioUrl) {
-                  URL.revokeObjectURL(understandAudioUrl);
-                  setUnderstandAudioUrl("");
-                }
-              }}
-            />
-          </label>
-
-          {/* Selected file badge */}
-          {imageFile && (
-            <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F0F4F1] px-4 py-2.5 text-sm">
-              <div className="flex items-center gap-2 truncate text-[#315B49]">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0" aria-hidden="true">
-                  <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5"/>
-                  <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/>
-                  <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                <span className="truncate font-medium">{imageFile.name}</span>
-                <span className="shrink-0 text-xs text-[#64806E]">({(imageFile.size / 1024).toFixed(0)} KB)</span>
-              </div>
-              <button
-                type="button"
-                onClick={clearSelectedImage}
-                aria-label="Remove selected image"
-                className="ml-2 shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-800 focus:outline-none transition"
-              >
-                Remove
-              </button>
-            </div>
-          )}
-
-          <label
-            htmlFor="image-question"
-            className="mt-5 mb-2 block text-sm font-medium text-[#252B28]"
-          >
-            What do you want to know?
-          </label>
-
-          <textarea
-            id="image-question"
-            value={imageQuestion}
-            onChange={(event) => setImageQuestion(event.target.value)}
-            placeholder="Ask a question about your image…"
-            rows={2}
-            className="w-full rounded-xl border border-[#E5E6DE] bg-[#FAFAF6] p-4 text-base outline-none transition focus:border-[#315B49] focus:bg-white sm:text-sm"
-          />
-
-          <button
-            type="button"
-            onClick={understandImage}
-            disabled={!imageFile || understandStatus !== "idle"}
-            className="mt-4 w-full rounded-xl bg-[#315B49] px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#254638] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {understandStatus === "understanding"
-              ? "Understanding image…"
-              : understandStatus === "preparing"
-              ? "Preparing explanation…"
-              : "Explain this image"}
-          </button>
-
-          {understandError && (
-            <div role="alert" className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {understandError}
-            </div>
-          )}
-
-          {/* Image explanation result */}
-          {imageAnswer && (
-            <div
-              className="mt-6 rounded-2xl bg-[#E8EFE8] p-5 sm:p-6"
-              aria-live="polite"
-              role="region"
-              aria-label="Image explanation"
-            >
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#315B49]">
-                Sunoza explains
-              </p>
-
-              <p className="text-[15px] leading-relaxed text-[#252B28]">
-                {imageAnswer}
-              </p>
-
-              {/* Audio player */}
-              <div className="mt-4 border-t border-[#D5E1D6] pt-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-[#315B49]">
-                    Listen to explanation
-                  </p>
-                  {understandAudioLoading && (
-                    <span className="flex items-center gap-1.5 text-xs text-[#64806E]" aria-live="polite">
-                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#315B49]"></span>
-                      Generating…
-                    </span>
-                  )}
-                  {understandAudioUrl && !understandAudioLoading && (
-                    <span className="text-xs font-medium text-[#315B49]">
-                      ✓ Ready
-                    </span>
-                  )}
-                </div>
-
-                {understandAudioError && (
-                  <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-800" role="alert">
-                    <span>{understandAudioError}</span>
-                    <button
-                      type="button"
-                      onClick={() => generateUnderstandAudio(imageAnswer)}
-                      disabled={understandAudioLoading}
-                      aria-label="Retry audio generation"
-                      className="ml-3 font-semibold underline hover:text-amber-900 focus:outline-none"
-                    >
-                      Retry
-                    </button>
+                      {understandAudioUrl && (
+                        <audio controls src={understandAudioUrl} className="mt-2 w-full">
+                          Your browser does not support audio playback.
+                        </audio>
+                      )}
+                    </div>
                   </div>
                 )}
-
-                {understandAudioUrl && (
-                  <audio
-                    controls
-                    src={understandAudioUrl}
-                    className="mt-3 w-full"
-                  >
-                    Your browser does not support audio playback.
-                  </audio>
-                )}
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* ─── Section 3: Document Understanding ─── */}
-        <section className="mt-6 rounded-3xl border border-[#E5E6DE] bg-white p-6 shadow-sm sm:p-10">
-          <div className="mb-6">
-            <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-[#64806E]">
-              Document understanding
-            </p>
-
-            <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">
-              Understand any document
-            </h2>
-
-            <p className="mt-1.5 text-sm text-[#64806E]">
-              Upload invoices, agreements, policies or notes. Sunoza extracts text, detects scanned pages and highlights key information.
-            </p>
-          </div>
-
-          {/* Drag & drop file area */}
-          <div
-            tabIndex={0}
-            role="button"
-            aria-label="Upload a document"
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                document.getElementById("doc-upload")?.click();
-              }
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDocDragging(true);
-            }}
-            onDragLeave={() => setIsDocDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDocDragging(false);
-              const droppedFile = e.dataTransfer.files?.[0];
-              if (droppedFile) {
-                if (docRequestAbortRef.current) docRequestAbortRef.current.abort();
-                if (docAudioAbortRef.current) docAudioAbortRef.current.abort();
-                activeDocRequestIdRef.current += 1;
-                setDocStatus("idle");
-                setDocFile(droppedFile);
-                setDocAnswer("");
-                setDocError("");
-                setDocAudioError("");
-                setDocMeta(null);
-                if (docAudioUrl) {
-                  URL.revokeObjectURL(docAudioUrl);
-                  setDocAudioUrl("");
-                }
-              }
-            }}
-            onClick={() => document.getElementById("doc-upload")?.click()}
-            className={`upload-area flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-8 text-center transition focus-visible:outline-2 focus-visible:outline-[#315B49] ${
-              isDocDragging
-                ? "border-[#315B49] bg-[#E8EFE8]"
-                : "border-[#D5E1D6] bg-[#FAFAF6] hover:border-[#315B49] hover:bg-[#F0F4F1]"
-            }`}
-          >
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#E8EFE8]">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-[#315B49]" aria-hidden="true">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-                <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-                <path d="M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
+              </section>
             </div>
 
-            <span className="mt-3 text-sm font-semibold text-[#315B49]">
-              {isDocDragging ? "Drop your file here" : "Choose or drop a document"}
-            </span>
-
-            <span className="mt-1 text-xs text-[#64806E]">
-              PDF, TXT, MD, CSV or Image · Max 10 MB
-            </span>
-
-            <input
-              id="doc-upload"
-              type="file"
-              accept=".pdf,.txt,.md,.csv,image/jpeg,image/png,image/webp"
-              className="sr-only"
-              onChange={(event) => {
-                const file = event.target.files?.[0] ?? null;
-                if (docRequestAbortRef.current) docRequestAbortRef.current.abort();
-                if (docAudioAbortRef.current) docAudioAbortRef.current.abort();
-                activeDocRequestIdRef.current += 1;
-                setDocStatus("idle");
-                setDocFile(file);
-                setDocAnswer("");
-                setDocError("");
-                setDocAudioError("");
-                setDocMeta(null);
-                if (docAudioUrl) {
-                  URL.revokeObjectURL(docAudioUrl);
-                  setDocAudioUrl("");
-                }
-              }}
-            />
-          </div>
-
-          {/* Selected document badge */}
-          {docFile && (
-            <div className="mt-3 flex items-center justify-between rounded-xl bg-[#F0F4F1] px-4 py-2.5 text-sm">
-              <div className="flex items-center gap-2 truncate text-[#315B49]">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="shrink-0" aria-hidden="true">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-                  <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/>
-                </svg>
-                <span className="truncate font-medium">{docFile.name}</span>
-                <span className="shrink-0 text-xs text-[#64806E]">({(docFile.size / 1024).toFixed(0)} KB)</span>
-              </div>
-              <button
-                type="button"
-                onClick={clearSelectedDocument}
-                aria-label="Remove selected document"
-                className="ml-2 shrink-0 rounded-lg px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 hover:text-red-800 focus:outline-none transition"
-              >
-                Remove
-              </button>
-            </div>
-          )}
-
-          <label
-            htmlFor="doc-question"
-            className="mt-5 mb-2 block text-sm font-medium text-[#252B28]"
-          >
-            What would you like explained?
-          </label>
-
-          <textarea
-            id="doc-question"
-            value={docQuestion}
-            onChange={(event) => setDocQuestion(event.target.value)}
-            placeholder="Ask about dates, fees, penalties, summaries…"
-            rows={2}
-            className="w-full rounded-xl border border-[#E5E6DE] bg-[#FAFAF6] p-4 text-base outline-none transition focus:border-[#315B49] focus:bg-white sm:text-sm"
-          />
-
-          <button
-            type="button"
-            onClick={understandDocument}
-            disabled={!docFile || docStatus !== "idle"}
-            className="mt-4 w-full rounded-xl bg-[#315B49] px-5 py-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#254638] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {docStatus === "reading"
-              ? "Extracting text…"
-              : docStatus === "analyzing"
-              ? "Analyzing content…"
-              : "Explain this document"}
-          </button>
-
-          {docError && (
-            <div role="alert" className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {docError}
-            </div>
-          )}
-
-          {/* Document explanation result */}
-          {docAnswer && (
-            <div
-              className="mt-6 rounded-2xl bg-[#E8EFE8] p-5 sm:p-6"
-              aria-live="polite"
-              role="region"
-              aria-label="Document explanation"
-            >
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[#315B49]">
-                  Document explanation
-                </p>
-                {docMeta && (
-                  <span className="rounded-full bg-[#D5E1D6] px-2.5 py-1 text-[11px] font-medium text-[#254638]">
-                    {docMeta.fileType?.toUpperCase()} · {docMeta.numPages} {docMeta.numPages === 1 ? "page" : "pages"}
-                    {docMeta.isScanned ? " · OCR" : ""}
+            {/* ─── TOOL B: DOCUMENT UNDERSTANDING ─── */}
+            <div className={`${activeTab === "image" ? "hidden lg:hidden" : (desktopToolTab === "document" || activeTab === "document" ? "block" : "hidden lg:hidden")}`}>
+              <section className="rounded-3xl border border-[#DDD6C9] bg-[#FFFCF7] p-6 sm:p-7 shadow-xs">
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-[#ECE7DC] pb-3 mb-4">
+                  <div>
+                    <h2 className="text-xl font-bold tracking-tight text-[#33446A]">
+                      {t.docSectionTitle}
+                    </h2>
+                    <p className="mt-0.5 text-xs text-[#485E4B]">
+                      {t.docSectionDesc}
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-[#F3EFE6] px-2.5 py-0.5 text-xs font-bold text-[#33446A]">
+                    Document AI
                   </span>
-                )}
-              </div>
-
-              <div className="text-[15px] leading-relaxed whitespace-pre-line text-[#252B28]">
-                {docAnswer}
-              </div>
-
-              {/* Audio player */}
-              <div className="mt-4 border-t border-[#D5E1D6] pt-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-[#315B49]">
-                    Listen to explanation
-                  </p>
-                  {docAudioLoading && (
-                    <span className="flex items-center gap-1.5 text-xs text-[#64806E]" aria-live="polite">
-                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#315B49]"></span>
-                      Generating…
-                    </span>
-                  )}
-                  {docAudioUrl && !docAudioLoading && (
-                    <span className="text-xs font-medium text-[#315B49]">
-                      ✓ Ready
-                    </span>
-                  )}
                 </div>
 
-                {docAudioError && (
-                  <div className="mt-3 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-800" role="alert">
-                    <span>{docAudioError}</span>
+                {/* Compact Drag & Drop Area */}
+                <div
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Upload a document"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      document.getElementById("doc-upload")?.click();
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDocDragging(true);
+                  }}
+                  onDragLeave={() => setIsDocDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDocDragging(false);
+                    const droppedFile = e.dataTransfer.files?.[0];
+                    if (droppedFile) {
+                      if (docRequestAbortRef.current) docRequestAbortRef.current.abort();
+                      if (docAudioAbortRef.current) docAudioAbortRef.current.abort();
+                      activeDocRequestIdRef.current += 1;
+                      setDocStatus("idle");
+                      setDocFile(droppedFile);
+                      setDocAnswer("");
+                      setDocError("");
+                      setDocAudioError("");
+                      setDocMeta(null);
+                      if (docAudioUrl) {
+                        URL.revokeObjectURL(docAudioUrl);
+                        setDocAudioUrl("");
+                      }
+                    }
+                  }}
+                  onClick={() => document.getElementById("doc-upload")?.click()}
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-[1.5px] border-dashed px-4 py-5 text-center transition focus-visible:outline-2 focus-visible:outline-[#33446A] ${
+                    isDocDragging
+                      ? "border-[#33446A] bg-[#ECE7DC] scale-[0.99]"
+                      : "border-[#DDD6C9] bg-[#FAF7F0] hover:border-[#33446A] hover:bg-[#F3EFE6]"
+                  }`}
+                >
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ECE7DC] text-[#33446A]">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                      <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                      <path d="M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                  </div>
+
+                  <span className="mt-2.5 text-xs font-bold text-[#33446A]">
+                    {isDocDragging ? "Drop your file here" : t.chooseDoc}
+                  </span>
+                  <span className="mt-0.5 text-xs text-[#485E4B]">{t.docFormatHint}</span>
+
+                  <input
+                    id="doc-upload"
+                    type="file"
+                    accept=".pdf,.txt,.md,.csv,image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      if (docRequestAbortRef.current) docRequestAbortRef.current.abort();
+                      if (docAudioAbortRef.current) docAudioAbortRef.current.abort();
+                      activeDocRequestIdRef.current += 1;
+                      setDocStatus("idle");
+                      setDocFile(file);
+                      setDocAnswer("");
+                      setDocError("");
+                      setDocAudioError("");
+                      setDocMeta(null);
+                      if (docAudioUrl) {
+                        URL.revokeObjectURL(docAudioUrl);
+                        setDocAudioUrl("");
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Selected Document Badge */}
+                {docFile && (
+                  <div className="mt-3 flex items-center justify-between rounded-xl border border-[#DDD6C9] bg-[#F3EFE6] px-3.5 py-2.5 text-xs">
+                    <div className="flex items-center gap-2.5 truncate text-[#33446A]">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="shrink-0 text-[#33446A]" aria-hidden="true">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                        <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                      </svg>
+                      <div className="truncate">
+                        <span className="truncate font-semibold block text-sm">{docFile.name}</span>
+                        <span className="shrink-0 text-xs text-[#485E4B]">
+                          {(docFile.size / 1024).toFixed(0)} KB
+                        </span>
+                      </div>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => generateDocAudio(docAnswer)}
-                      disabled={docAudioLoading}
-                      aria-label="Retry document audio generation"
-                      className="ml-3 font-semibold underline hover:text-amber-900 focus:outline-none"
+                      onClick={clearSelectedDocument}
+                      aria-label="Remove selected document"
+                      className="ml-2 shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[#B86F58] hover:bg-red-50 focus:outline-none transition"
                     >
-                      Retry
+                      {t.remove}
                     </button>
                   </div>
                 )}
 
-                {docAudioUrl && (
-                  <audio
-                    controls
-                    src={docAudioUrl}
-                    className="mt-3 w-full"
-                  >
-                    Your browser does not support audio playback.
-                  </audio>
-                )}
-              </div>
-            </div>
-          )}
-        </section>
+                {/* Question Input */}
+                <label
+                  htmlFor="doc-question"
+                  className="mt-4 mb-1.5 block text-xs font-bold text-[#252A31]"
+                >
+                  {t.docPromptLabel}
+                </label>
 
-        {/* ─── Footer ─── */}
-        <footer className="mt-10 pb-4 text-center text-xs text-[#64806E]">
-          Sunoza · Powered by Gnani AI
+                <textarea
+                  id="doc-question"
+                  value={docQuestion}
+                  onChange={(e) => setDocQuestion(e.target.value)}
+                  placeholder={t.docPromptPlaceholder}
+                  rows={2}
+                  className="w-full rounded-xl border border-[#DDD6C9] bg-[#F3EFE6] p-3 text-base outline-none transition focus:border-[#33446A] focus:bg-[#FFFCF7] sm:text-xs"
+                />
+
+                <button
+                  type="button"
+                  onClick={understandDocument}
+                  disabled={!docFile || docStatus !== "idle"}
+                  className="mt-3.5 w-full rounded-xl bg-[#33446A] px-4 py-3 text-xs font-bold text-[#FFFCF7] shadow-xs transition hover:bg-[#263350] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {docStatus === "reading" ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                      {t.docReading}
+                    </span>
+                  ) : docStatus === "analyzing" ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                      {t.docAnalyzing}
+                    </span>
+                  ) : (
+                    t.docExplainBtn
+                  )}
+                </button>
+
+                {docError && (
+                  <div role="alert" className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+                    {docError}
+                  </div>
+                )}
+
+                {/* Document Explanation Result */}
+                {docAnswer && (
+                  <div
+                    className="mt-4 rounded-2xl border border-[#DDD6C9] bg-[#F3EFE6] p-4 text-xs"
+                    aria-live="polite"
+                    role="region"
+                    aria-label="Document explanation"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <SoundwaveMotif bars={3} height="h-3" color="text-[#D99B37]" />
+                        <p className="font-bold uppercase tracking-wider text-[#D99B37] text-xs">
+                          {t.sunozaSays}
+                        </p>
+                      </div>
+                      {docMeta && (
+                        <span className="rounded-full bg-[#ECE7DC] px-2.5 py-0.5 text-xs font-bold text-[#33446A]">
+                          {docMeta.fileType?.toUpperCase()} · {docMeta.numPages} {docMeta.numPages === 1 ? "page" : "pages"}
+                          {docMeta.isScanned ? " · OCR" : ""}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="leading-relaxed whitespace-pre-line text-[#252A31] text-sm break-words">
+                      {docAnswer}
+                    </div>
+
+                    {/* Audio Playback Controls */}
+                    <div className="mt-3 border-t border-[#DDD6C9] pt-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-[#33446A]">
+                          {t.listenExplanation}
+                        </span>
+                        {docAudioLoading && (
+                          <span className="flex items-center gap-1.5 text-xs text-[#485E4B]" aria-live="polite">
+                            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#D99B37]"></span>
+                            {t.audioGenerating}
+                          </span>
+                        )}
+                        {docAudioUrl && !docAudioLoading && (
+                          <span className="text-xs font-semibold text-[#485E4B]">
+                            ✓ {t.audioReady}
+                          </span>
+                        )}
+                      </div>
+
+                      {docAudioError && (
+                        <div className="mt-2 flex items-center justify-between rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 border border-amber-200" role="alert">
+                          <span>{docAudioError}</span>
+                          <button
+                            type="button"
+                            onClick={() => generateDocAudio(docAnswer)}
+                            disabled={docAudioLoading}
+                            aria-label="Retry audio generation"
+                            className="ml-2 font-semibold underline hover:text-amber-950 focus:outline-none"
+                          >
+                            {t.retry}
+                          </button>
+                        </div>
+                      )}
+
+                      {docAudioUrl && (
+                        <audio controls src={docAudioUrl} className="mt-2 w-full">
+                          Your browser does not support audio playback.
+                        </audio>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </section>
+            </div>
+          </div>
+        </div>
+
+        {/* ─── FOOTER ─── */}
+        <footer className="mt-12 sm:mt-16 border-t border-[#DDD6C9]/70 pt-6 text-center text-xs font-medium text-[#485E4B]">
+          <div className="flex items-center justify-center gap-2 mb-1.5">
+            <SoundwaveMotif bars={3} height="h-2.5" color="text-[#D99B37]" />
+            <span>{t.appName} · {t.tagline}</span>
+            <SoundwaveMotif bars={3} height="h-2.5" color="text-[#D99B37]" />
+          </div>
+          <p>{t.footerText} · Powered by Gnani AI & Gemini</p>
         </footer>
       </div>
     </main>

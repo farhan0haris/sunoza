@@ -1,4 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
-  <rect width="48" height="48" rx="12" fill="#315B49"/>
-  <text x="24" y="32" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="700" fill="#ffffff" text-anchor="middle">S</text>
+  <rect width="48" height="48" rx="14" fill="#33446A"/>
+  <!-- Sunoza S Glyph -->
+  <text x="18" y="32" font-family="'Manrope', system-ui, sans-serif" font-size="24" font-weight="700" fill="#FFFCF7" text-anchor="middle">S</text>
+  <!-- Soundwave Branding Motif -->
+  <rect x="27" y="21" width="2.5" height="10" rx="1.25" fill="#D99B37"/>
+  <rect x="32" y="16" width="2.5" height="18" rx="1.25" fill="#FFFCF7"/>
+  <rect x="37" y="23" width="2.5" height="8" rx="1.25" fill="#D99B37"/>
+  <!-- Gold Accent Dot -->
+  <circle cx="41" cy="14" r="1.5" fill="#D99B37"/>
 </svg>

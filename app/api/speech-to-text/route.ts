@@ -1,106 +1,72 @@
-
 import { NextResponse } from "next/server";
+import { routeSpeechToText } from "@/lib/speech-providers";
 
 export const maxDuration = 60;
 
-
-
 export async function POST(request: Request) {
   try {
-    // 1. Read the API key from the server environment
-    const apiKey = process.env.GNANI_API_KEY;
+    const gnaniApiKey = process.env.GNANI_API_KEY;
+    const geminiApiKey = process.env.GEMINI_API_KEY;
 
-    if (!apiKey) {
+    if (!gnaniApiKey && !geminiApiKey) {
       return NextResponse.json(
-        { error: "Gnani API key is missing." },
+        { error: "Speech service credentials are not configured on the server." },
         { status: 500 }
       );
     }
 
-    // 2. Receive audio from the frontend
     const incomingForm = await request.formData();
     const audio = incomingForm.get("audio");
+    const requestedLanguage = String(incomingForm.get("language") || "auto");
 
-    if (!audio || typeof audio === "string") {
+    if (!(audio instanceof File)) {
       return NextResponse.json(
-        { error: "Please provide an audio file." },
+        { error: "Please provide a valid audio recording." },
         { status: 400 }
       );
     }
 
-    // 3. Validate the uploaded file
-    const allowedFormats =
-      /\.(wav|mp3|ogg|flac|aac|m4a)$/i;
-
-    if (!allowedFormats.test(audio.name)) {
+    const allowedFormats = /\.(wav|mp3|ogg|flac|aac|m4a|webm)$/i;
+    if (!allowedFormats.test(audio.name) && !audio.type.startsWith("audio/")) {
       return NextResponse.json(
-        { error: "Unsupported audio format." },
+        { error: "Unsupported audio format. Please upload WAV, MP3, OGG, FLAC, AAC, or M4A." },
         { status: 400 }
       );
     }
 
     if (audio.size === 0 || audio.size > 15 * 1024 * 1024) {
       return NextResponse.json(
-        { error: "Audio is empty or exceeds 15 MB." },
+        { error: "Audio file is empty or exceeds the 15 MB limit." },
         { status: 400 }
       );
     }
 
-    // 4. Prepare the request for Gnani Prisma
-    const gnaniForm = new FormData();
+    const audioBuffer = Buffer.from(await audio.arrayBuffer());
 
-    gnaniForm.append("audio_file", audio, audio.name);
-    gnaniForm.append("model", "prisma-v3.0");
-    gnaniForm.append("language_code", "indic-auto");
-    gnaniForm.append("format", "transcribe");
-
-    // 5. Send audio to Gnani
-    const response = await fetch(
-      "https://api.vachana.ai/stt/v3",
-      {
-        method: "POST",
-        headers: {
-          "X-API-Key-ID": apiKey,
-        },
-        body: gnaniForm,
-        cache: "no-store",
-      }
-    );
-
-    const rawResponse = await response.text();
-
-    let result: Record<string, unknown>;
-
-    try {
-      result = JSON.parse(rawResponse);
-    } catch {
-      result = { message: rawResponse };
-    }
-
-    // 6. Handle Gnani errors
-    if (!response.ok) {
-      console.error("Gnani API error:", result);
-
-      return NextResponse.json(
-        { error: result },
-        { status: response.status }
-      );
-    }
-
-    // 7. Send the transcript back to the frontend
-    return NextResponse.json({
-      success: true,
-      transcript: result.transcript ?? "",
-      detectedLanguage:
-        result.detected_language_code ?? null,
-      model: result.model ?? "prisma-v3.0",
+    const result = await routeSpeechToText({
+      audioBuffer,
+      filename: audio.name,
+      mimeType: audio.type || "audio/wav",
+      languageCode: requestedLanguage,
+      gnaniApiKey,
+      geminiApiKey,
     });
 
+    return NextResponse.json({
+      success: true,
+      transcript: result.transcript,
+      detectedLanguage: result.detectedLanguage,
+      provider: result.provider,
+      model: result.model,
+    });
   } catch (error) {
     console.error("Speech recognition error:", error);
 
+    const message =
+      error instanceof Error ? error.message : "Failed to process audio recording.";
+
     return NextResponse.json(
-      { error: "Failed to process the audio." },
+      { error: message },
       { status: 500 }
     );
   }
