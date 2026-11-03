@@ -9,6 +9,7 @@ import {
   getLanguageMeta,
 } from "@/lib/languages";
 import { getTranslations, type TranslationStrings } from "@/lib/translations";
+import PwaInstallPrompt from "./components/PwaInstallPrompt";
 
 // Client-side image resizing utility to reduce upload latency and memory while preserving readability
 async function resizeImageIfNeeded(file: File, maxDimension = 1600): Promise<File> {
@@ -204,6 +205,20 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"voice" | "image" | "document">("voice");
   // Desktop Multimodal Tool Switcher: "image" | "document"
   const [desktopToolTab, setDesktopToolTab] = useState<"image" | "document">("image");
+
+  // Support PWA shortcuts and direct links via ?tab=voice|image|document
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab");
+      if (tabParam === "voice" || tabParam === "image" || tabParam === "document") {
+        setActiveTab(tabParam);
+        if (tabParam === "image" || tabParam === "document") {
+          setDesktopToolTab(tabParam);
+        }
+      }
+    }
+  }, []);
 
   // Voice Assistant states
   const [recording, setRecording] = useState(false);
@@ -513,6 +528,44 @@ export default function Home() {
     }
   }
 
+  // Handle image selection from Camera or File Picker
+  function handleImageSelect(file: File | null) {
+    if (understandRequestAbortRef.current) {
+      understandRequestAbortRef.current.abort();
+      understandRequestAbortRef.current = null;
+    }
+    if (understandAudioAbortRef.current) {
+      understandAudioAbortRef.current.abort();
+      understandAudioAbortRef.current = null;
+    }
+    activeRequestIdRef.current += 1;
+    setUnderstandStatus("idle");
+
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+      setImagePreviewUrl("");
+    }
+
+    if (file) {
+      if (["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.type.startsWith("image/")) {
+        setImageFile(file);
+        setImagePreviewUrl(URL.createObjectURL(file));
+        setImageAnswer("");
+        setUnderstandError("");
+        setUnderstandAudioError("");
+        if (understandAudioUrl) {
+          URL.revokeObjectURL(understandAudioUrl);
+          setUnderstandAudioUrl("");
+        }
+      } else {
+        setUnderstandError("Unsupported image format. Please upload JPEG, PNG, or WEBP.");
+      }
+    } else {
+      setImageFile(null);
+      setImagePreviewUrl("");
+    }
+  }
+
   // Clear selected document
   function clearSelectedDocument() {
     if (docRequestAbortRef.current) {
@@ -528,6 +581,30 @@ export default function Home() {
     setDocFile(null);
     setDocAnswer("");
     setDocStatus("idle");
+    setDocError("");
+    setDocAudioError("");
+    setDocMeta(null);
+    if (docAudioUrl) {
+      URL.revokeObjectURL(docAudioUrl);
+      setDocAudioUrl("");
+    }
+  }
+
+  // Handle document selection
+  function handleDocSelect(file: File | null) {
+    if (docRequestAbortRef.current) {
+      docRequestAbortRef.current.abort();
+      docRequestAbortRef.current = null;
+    }
+    if (docAudioAbortRef.current) {
+      docAudioAbortRef.current.abort();
+      docAudioAbortRef.current = null;
+    }
+    activeDocRequestIdRef.current += 1;
+    setDocStatus("idle");
+
+    setDocFile(file);
+    setDocAnswer("");
     setDocError("");
     setDocAudioError("");
     setDocMeta(null);
@@ -1057,7 +1134,7 @@ export default function Home() {
     : "idle";
 
   return (
-    <main className="min-h-screen bg-[#F3EFE6] px-4 py-6 text-[#252A31] sm:px-6 sm:py-8 lg:px-8 lg:py-12">
+    <main className="min-h-screen bg-[#F3EFE6] px-4 py-6 pb-[calc(5.5rem+env(safe-area-inset-bottom))] text-[#252A31] sm:px-6 sm:py-8 lg:px-8 lg:py-12 lg:pb-12">
       <div className="mx-auto max-w-[1240px] w-full">
 
         {/* ─── HEADER ─── */}
@@ -1738,6 +1815,50 @@ export default function Home() {
                   </span>
                 </div>
 
+                {/* Mobile Dual Action Buttons: Camera Capture & Photo Library */}
+                <div className="grid grid-cols-2 gap-2.5 mb-3">
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById("image-camera-upload")?.click()}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-[#DDD6C9] bg-[#FFFCF7] px-3.5 py-3 text-xs font-bold text-[#33446A] shadow-xs hover:border-[#33446A] hover:bg-[#FAF7F0] transition focus-visible:outline-2 focus-visible:outline-[#33446A]"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-[#D99B37]">
+                      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path>
+                      <circle cx="12" cy="13" r="3"></circle>
+                    </svg>
+                    <span>Take Photo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById("image-gallery-upload")?.click()}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-[#DDD6C9] bg-[#FFFCF7] px-3.5 py-3 text-xs font-bold text-[#33446A] shadow-xs hover:border-[#33446A] hover:bg-[#FAF7F0] transition focus-visible:outline-2 focus-visible:outline-[#33446A]"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="text-[#33446A]">
+                      <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                      <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                      <polyline points="21 15 16 10 5 21"></polyline>
+                    </svg>
+                    <span>Choose Photo</span>
+                  </button>
+
+                  <input
+                    id="image-camera-upload"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="sr-only"
+                    onChange={(e) => handleImageSelect(e.target.files?.[0] || null)}
+                  />
+                  <input
+                    id="image-gallery-upload"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    onChange={(e) => handleImageSelect(e.target.files?.[0] || null)}
+                  />
+                </div>
+
                 {/* Subtle Editorial Upload Surface */}
                 <div
                   tabIndex={0}
@@ -1746,7 +1867,7 @@ export default function Home() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      document.getElementById("image-upload")?.click();
+                      document.getElementById("image-gallery-upload")?.click();
                     }
                   }}
                   onDragOver={(e) => {
@@ -1757,72 +1878,28 @@ export default function Home() {
                   onDrop={(e) => {
                     e.preventDefault();
                     setIsImageDragging(false);
-                    const droppedFile = e.dataTransfer.files?.[0];
-                    if (droppedFile) {
-                      if (["image/jpeg", "image/png", "image/webp"].includes(droppedFile.type)) {
-                        if (understandRequestAbortRef.current) understandRequestAbortRef.current.abort();
-                        if (understandAudioAbortRef.current) understandAudioAbortRef.current.abort();
-                        activeRequestIdRef.current += 1;
-                        setUnderstandStatus("idle");
-                        if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-                        setImageFile(droppedFile);
-                        setImagePreviewUrl(URL.createObjectURL(droppedFile));
-                        setImageAnswer("");
-                        setUnderstandError("");
-                        setUnderstandAudioError("");
-                        if (understandAudioUrl) {
-                          URL.revokeObjectURL(understandAudioUrl);
-                          setUnderstandAudioUrl("");
-                        }
-                      } else {
-                        setUnderstandError("Unsupported image format. Please upload JPEG, PNG, or WEBP.");
-                      }
-                    }
+                    const droppedFile = e.dataTransfer.files?.[0] || null;
+                    handleImageSelect(droppedFile);
                   }}
-                  onClick={() => document.getElementById("image-upload")?.click()}
-                  className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-[#DDD6C9] px-4 py-6 text-center transition focus-visible:outline-2 focus-visible:outline-[#33446A] ${
+                  onClick={() => document.getElementById("image-gallery-upload")?.click()}
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-[#DDD6C9] px-4 py-5 text-center transition focus-visible:outline-2 focus-visible:outline-[#33446A] ${
                     isImageDragging
                       ? "border-[#33446A] bg-[#ECE7DC] scale-[0.99]"
                       : "bg-[#FAF7F0] hover:border-[#33446A] hover:bg-[#FFFCF7]"
                   }`}
                 >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#ECE7DC] text-[#33446A]">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ECE7DC] text-[#33446A]">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
                       <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
                       <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
 
-                  <span className="mt-3 text-xs font-bold text-[#33446A]">
-                    {isImageDragging ? "Drop your image here" : t.chooseImage}
+                  <span className="mt-2.5 text-xs font-bold text-[#33446A]">
+                    {isImageDragging ? "Drop your image here" : "Or drag & drop photo / screenshot"}
                   </span>
-                  <span className="mt-0.5 text-xs text-[#485E4B]">JPEG, PNG, WEBP · Up to 8 MB</span>
-
-                  <input
-                    id="image-upload"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="sr-only"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0] ?? null;
-                      if (understandRequestAbortRef.current) understandRequestAbortRef.current.abort();
-                      if (understandAudioAbortRef.current) understandAudioAbortRef.current.abort();
-                      activeRequestIdRef.current += 1;
-                      setUnderstandStatus("idle");
-
-                      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-                      setImageFile(file);
-                      setImagePreviewUrl(file ? URL.createObjectURL(file) : "");
-                      setImageAnswer("");
-                      setUnderstandError("");
-                      setUnderstandAudioError("");
-                      if (understandAudioUrl) {
-                        URL.revokeObjectURL(understandAudioUrl);
-                        setUnderstandAudioUrl("");
-                      }
-                    }}
-                  />
+                  <span className="mt-0.5 text-2xs text-[#485E4B]">JPEG, PNG, WEBP · Up to 8 MB</span>
                 </div>
 
                 {/* Selected Image Row */}
@@ -2025,22 +2102,8 @@ export default function Home() {
                   onDrop={(e) => {
                     e.preventDefault();
                     setIsDocDragging(false);
-                    const droppedFile = e.dataTransfer.files?.[0];
-                    if (droppedFile) {
-                      if (docRequestAbortRef.current) docRequestAbortRef.current.abort();
-                      if (docAudioAbortRef.current) docAudioAbortRef.current.abort();
-                      activeDocRequestIdRef.current += 1;
-                      setDocStatus("idle");
-                      setDocFile(droppedFile);
-                      setDocAnswer("");
-                      setDocError("");
-                      setDocAudioError("");
-                      setDocMeta(null);
-                      if (docAudioUrl) {
-                        URL.revokeObjectURL(docAudioUrl);
-                        setDocAudioUrl("");
-                      }
-                    }
+                    const droppedFile = e.dataTransfer.files?.[0] || null;
+                    handleDocSelect(droppedFile);
                   }}
                   onClick={() => document.getElementById("doc-upload")?.click()}
                   className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-[#DDD6C9] px-4 py-6 text-center transition focus-visible:outline-2 focus-visible:outline-[#33446A] ${
@@ -2069,19 +2132,7 @@ export default function Home() {
                     className="sr-only"
                     onChange={(event) => {
                       const file = event.target.files?.[0] ?? null;
-                      if (docRequestAbortRef.current) docRequestAbortRef.current.abort();
-                      if (docAudioAbortRef.current) docAudioAbortRef.current.abort();
-                      activeDocRequestIdRef.current += 1;
-                      setDocStatus("idle");
-                      setDocFile(file);
-                      setDocAnswer("");
-                      setDocError("");
-                      setDocAudioError("");
-                      setDocMeta(null);
-                      if (docAudioUrl) {
-                        URL.revokeObjectURL(docAudioUrl);
-                        setDocAudioUrl("");
-                      }
+                      handleDocSelect(file);
                     }}
                   />
                 </div>
@@ -2423,6 +2474,96 @@ export default function Home() {
           </p>
         </footer>
       </div>
+
+      {/* PWA Mobile Installation Banner & Offline Manager */}
+      <PwaInstallPrompt />
+
+      {/* ─── FIXED MOBILE BOTTOM NAVIGATION BAR ─── */}
+      <nav
+        aria-label="Primary mobile navigation"
+        className="fixed bottom-0 left-0 right-0 z-40 lg:hidden border-t border-[#DDD6C9] bg-[#FFFCF7]/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(51,68,106,0.06)]"
+      >
+        <div className="mx-auto flex max-w-md items-center justify-around px-3 py-1.5">
+          {/* Destination 1: Talk */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("voice");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            aria-selected={activeTab === "voice"}
+            className={`relative flex flex-1 flex-col items-center justify-center py-1.5 px-2 rounded-xl transition ${
+              activeTab === "voice"
+                ? "text-[#33446A] font-bold"
+                : "text-[#485E4B] hover:text-[#252A31] font-medium"
+            }`}
+          >
+            <div className={`flex h-8 w-8 items-center justify-center rounded-full transition ${activeTab === "voice" ? "bg-[#33446A]/10 text-[#33446A]" : ""}`}>
+              <SoundwaveMotif bars={3} height="h-3.5" color={activeTab === "voice" ? "text-[#D99B37]" : "text-current"} />
+            </div>
+            <span className="text-2xs mt-0.5 tracking-tight">Talk</span>
+            {activeTab === "voice" && (
+              <span className="absolute bottom-0.5 h-1 w-6 rounded-full bg-[#33446A]" aria-hidden="true" />
+            )}
+          </button>
+
+          {/* Destination 2: Images */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("image");
+              setDesktopToolTab("image");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            aria-selected={activeTab === "image"}
+            className={`relative flex flex-1 flex-col items-center justify-center py-1.5 px-2 rounded-xl transition ${
+              activeTab === "image"
+                ? "text-[#33446A] font-bold"
+                : "text-[#485E4B] hover:text-[#252A31] font-medium"
+            }`}
+          >
+            <div className={`flex h-8 w-8 items-center justify-center rounded-full transition ${activeTab === "image" ? "bg-[#33446A]/10 text-[#33446A]" : ""}`}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={activeTab === "image" ? "2.2" : "1.8"} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="3" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+            </div>
+            <span className="text-2xs mt-0.5 tracking-tight">Images</span>
+            {activeTab === "image" && (
+              <span className="absolute bottom-0.5 h-1 w-6 rounded-full bg-[#33446A]" aria-hidden="true" />
+            )}
+          </button>
+
+          {/* Destination 3: Documents */}
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab("document");
+              setDesktopToolTab("document");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            aria-selected={activeTab === "document"}
+            className={`relative flex flex-1 flex-col items-center justify-center py-1.5 px-2 rounded-xl transition ${
+              activeTab === "document"
+                ? "text-[#33446A] font-bold"
+                : "text-[#485E4B] hover:text-[#252A31] font-medium"
+            }`}
+          >
+            <div className={`flex h-8 w-8 items-center justify-center rounded-full transition ${activeTab === "document" ? "bg-[#33446A]/10 text-[#33446A]" : ""}`}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={activeTab === "document" ? "2.2" : "1.8"} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                <path d="M14 2v6h6" />
+                <path d="M8 13h8M8 17h5" />
+              </svg>
+            </div>
+            <span className="text-2xs mt-0.5 tracking-tight">Documents</span>
+            {activeTab === "document" && (
+              <span className="absolute bottom-0.5 h-1 w-6 rounded-full bg-[#33446A]" aria-hidden="true" />
+            )}
+          </button>
+        </div>
+      </nav>
     </main>
   );
 }

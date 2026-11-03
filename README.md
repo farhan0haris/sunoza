@@ -47,6 +47,14 @@ Every day, millions of people encounter friction with critical everyday tasks:
 - **Critical Information Extraction**: Specifically isolates deadlines, payment amounts, interest rates, penalty clauses, and warning notices.
 - **Spoken Audio Readout**: Full speech synthesis allows users to listen to long documents rather than straining to read dense text.
 
+### Progressive Web App (PWA) & Mobile-First Interface
+- **Mobile-First Experience**: Designed primarily for smartphones, featuring a persistent fixed bottom navigation with three primary destinations: **Talk**, **Images**, and **Documents**.
+- **Touch & Safe-Area Protection**: Layout and bottom spacing dynamically adjust for iPhone home indicators and Android navigation bars (`env(safe-area-inset-bottom)`), guaranteeing inputs and audio controls are never obscured.
+- **Native Camera & Gallery Selection**: Quick-action mobile buttons for instant camera capture (`capture="environment"`) or photo library / screenshot selection.
+- **Installable Standalone Experience**: Add to home screen on Android, iOS, Windows, and macOS with standalone window mode and seamless splash branding (`#33446A` / `#F3EFE6`).
+- **Offline Shell & Low-Connectivity Fallback**: Built-in Service Worker precaches the core application shell, brand assets, and an accessible offline fallback page (`offline.html`).
+- **App Shortcuts**: Direct home screen quick actions to jump straight into Voice Assistant (`/?tab=voice`), Image Understanding (`/?tab=image`), or Document AI (`/?tab=document`).
+
 ---
 
 ## 4. Language Support & Speech Provider Routing
@@ -90,6 +98,7 @@ Sunoza supports **13 configured languages** alongside an intelligent **Auto-dete
   - Image Understanding: `gemini-3.8-flash` (with automated fallback to `gemini-3.6-flash`).
   - Document Analysis: `gemini-3.8-flash` (with automated fallback to `gemini-3.6-flash`).
 - **Document Processing**: `pdfjs-dist` (legacy server build for Node.js App Router).
+- **PWA & Offline**: Web App Manifest (`app/manifest.ts`), custom Service Worker (`public/sw.js`), and Cache API.
 - **Package Manager**: `pnpm` v11.
 - **Hosting & Deployment**: [Vercel Serverless Platform](https://vercel.com/).
 
@@ -258,7 +267,44 @@ Sunoza incorporates intentional accessibility practices throughout its visual, t
 
 ---
 
-## 11. Security & Limitations
+## 11. Progressive Web App (PWA) Architecture & Installation
+
+Sunoza is engineered as a mobile-first, installable Progressive Web App adhering to modern web application standards:
+
+### Service Worker & Caching Strategy
+- **App Shell Pre-caching**: Upon service worker installation (`public/sw.js`), the application shell, manifest, icons, and offline fallback (`/offline.html`) are cached locally.
+- **Navigation (HTML)**: Network-first strategy ensures users receive the freshest editorial UI updates. If network connectivity drops, the service worker automatically serves `/offline.html`.
+- **Static Assets**: Stale-while-revalidate strategy for CSS, JavaScript chunks, SVG icons, and Google Fonts (`Newsreader`, `Manrope`, `Noto Sans`) provides instant repeat visits.
+- **API Requests**: Direct network execution ensures cloud AI models are queried live without stale responses.
+
+### How to Install
+
+- **Android & Desktop Chromium (Chrome / Edge / Brave)**:
+  1. Open Sunoza in your mobile or desktop browser.
+  2. Tap **"Install"** on the floating install banner, or select **Install Sunoza** from the browser menu / address bar icon.
+  3. The app installs to your home screen or app drawer and launches in a dedicated standalone window.
+
+- **iOS Safari (iPhone & iPad)**:
+  1. Open Sunoza in Safari.
+  2. Tap the **Share** button (box with an upward arrow) in the browser navigation bar.
+  3. Scroll down and select **"Add to Home Screen"**.
+  4. Tap **Add** in the top-right corner. Sunoza will appear on your iOS home screen as a standalone web app.
+
+### PWA Home Screen Shortcuts
+Long-pressing the installed Sunoza icon on supported devices reveals quick-action shortcuts:
+- **Voice Assistant**: Jumps directly to speech interaction (`/?tab=voice`).
+- **Understand Image**: Jumps directly to image upload and analysis (`/?tab=image`).
+- **Understand Document**: Jumps directly to document reading (`/?tab=document`).
+
+### Mobile Hardware Permissions & Offline Safeguards
+
+- **Microphone Access**: Used exclusively when the user initiates voice recording. The browser requests microphone permission upon first interaction; modern operating systems require a secure context (`https://` or `localhost`).
+- **Camera & Photo Library Access**: Prompted on demand when tapping **"Take Photo"** (native camera capture) or **"Choose Photo"** (gallery/file selector).
+- **Conservative Offline Security**: Cloud AI inference (Gemini and Gnani.ai) strictly requires network connectivity. The service worker precaches only the application shell, fonts, and brand assets. User audio, uploaded images, private documents, and generated transcripts are **never stored in client-side service worker caches**, ensuring complete operational privacy.
+
+---
+
+## 12. Security & Limitations
 
 ### Operational Safeguards
 - **Server-Side Sanitation**: Raw Google Gen AI and Gnani API errors are caught and sanitized via `parseGeminiError`. Stack traces and internal endpoint URLs are never exposed to clients.
@@ -276,7 +322,7 @@ Sunoza is an assistive companion designed to summarize and simplify everyday inf
 
 ---
 
-## 12. Deployment on Vercel
+## 13. Deployment on Vercel
 
 Sunoza is architected for zero-configuration deployment on [Vercel](https://vercel.com):
 
@@ -289,10 +335,10 @@ Sunoza is architected for zero-configuration deployment on [Vercel](https://verc
 
 ---
 
-## 13. Project Status & Roadmap
+## 14. Project Status & Roadmap
 
 ### Current Status
-- **Phase 7.6 Complete**: Full visual identity, responsive 1240px master grid, 13-language routing engine, and multimodal document/image pipelines are implemented and verified in production builds.
+- **Mobile PWA & Phase 7.6 Complete**: Full visual identity, responsive 1240px master grid, 13-language routing engine, installable PWA manifest, service worker shell caching, and multimodal document/image pipelines are implemented and verified in production builds.
 
 ### Planned Improvements (Future Work)
 - [ ] Offline Web Speech API fallback when network connectivity is lost.
@@ -302,7 +348,7 @@ Sunoza is architected for zero-configuration deployment on [Vercel](https://verc
 
 ---
 
-## 14. Acknowledgements
+## 15. Acknowledgements
 
 - **[Gnani.ai](https://www.gnani.ai/)**: For their high-accuracy Indic language speech models (Prisma STT and Timbre TTS).
 - **[Google Gemini](https://ai.google.dev/)**: For multimodal visual reasoning, document comprehension, and fast international speech APIs.
