@@ -172,6 +172,28 @@ function SoundwaveMotif({
   );
 }
 
+// Functional example phrases & prompt chips for quick exploration
+const VOICE_EXAMPLE_PHRASES = [
+  "Explain this message to me.",
+  "Help me understand something.",
+  "Read this information aloud.",
+  "Translate this sentence.",
+];
+
+const IMAGE_PROMPT_CHIPS = [
+  "What is in this picture?",
+  "Where is this place?",
+  "Read the text in this image.",
+  "Describe this image.",
+];
+
+const DOC_PROMPT_CHIPS = [
+  "Summarise this document.",
+  "Find important dates.",
+  "Explain the fees and amounts.",
+  "Identify important warnings.",
+];
+
 export default function Home() {
   // Global Language Preference (13 Languages + Auto-detect)
   const [selectedLanguage, setSelectedLanguage] = useState<LanguageCode>("auto");
@@ -185,6 +207,12 @@ export default function Home() {
 
   // Voice Assistant states
   const [recording, setRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const understandAudioRef = useRef<HTMLAudioElement | null>(null);
+  const docAudioRef = useRef<HTMLAudioElement | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [detectedLanguage, setDetectedLanguage] = useState("");
@@ -261,13 +289,27 @@ export default function Home() {
     return detectedLanguage || "en-IN";
   }
 
-  // Release generated audio URLs and previews when replaced or unmounted
+  // Helper to replay audio from start
+  function replayAudio(audioRef: React.RefObject<HTMLAudioElement | null>) {
+    if (audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play().catch((err) => {
+        console.warn("Audio replay was prevented:", err);
+      });
+    }
+  }
+
+  // Release generated audio URLs, previews, and active timers when replaced or unmounted
   useEffect(() => {
     return () => {
       if (voiceAudioUrl) URL.revokeObjectURL(voiceAudioUrl);
       if (understandAudioUrl) URL.revokeObjectURL(understandAudioUrl);
       if (docAudioUrl) URL.revokeObjectURL(docAudioUrl);
       if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
     };
   }, [voiceAudioUrl, understandAudioUrl, docAudioUrl, imagePreviewUrl]);
 
@@ -875,9 +917,31 @@ export default function Home() {
       recorderRef.current = recorder;
       streamRef.current = stream;
 
+      // Start live 30-second duration counter
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
+      setRecordingSeconds(0);
+      const timer = setInterval(() => {
+        setRecordingSeconds((prev) => {
+          if (prev >= 29) {
+            clearInterval(timer);
+            stopRecording();
+            return 30;
+          }
+          return prev + 1;
+        });
+      }, 1000);
+      recordingTimerRef.current = timer;
+
       recorder.start();
       setRecording(true);
     } catch (err) {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      setRecordingSeconds(0);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
       recorderRef.current = null;
@@ -890,6 +954,11 @@ export default function Home() {
 
   // Stop recording, convert to WAV and route to speech provider
   async function stopRecording() {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
     const recorder = recorderRef.current;
     if (!recorder) return;
 
@@ -945,6 +1014,7 @@ export default function Home() {
       streamRef.current = null;
       chunksRef.current = [];
       setLoading(false);
+      setRecordingSeconds(0);
     }
   }
 
@@ -988,10 +1058,10 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#F3EFE6] px-4 py-6 text-[#252A31] sm:px-6 sm:py-8 lg:px-8 lg:py-12">
-      <div className="mx-auto max-w-6xl w-full">
+      <div className="mx-auto max-w-[1240px] w-full">
 
         {/* ─── HEADER ─── */}
-        <header className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-[#DDD6C9]/70 pb-6 sm:mb-10">
+        <header className="mb-8 flex flex-wrap items-center justify-between gap-4 border-b border-[#DDD6C9] pb-6 sm:mb-10">
           <div className="flex items-center gap-3.5">
             {/* Logo Mark: Indigo tile with "S", accent dot & soundwave motif */}
             <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl bg-[#33446A] shadow-xs">
@@ -1143,25 +1213,50 @@ export default function Home() {
           </div>
         </header>
 
-        {/* ─── SINGLE MAIN HERO SECTION ─── */}
-        <section className="mb-8 sm:mb-10 text-center sm:text-left">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#33446A]">
-            {t.welcomeTitle}
+        {/* ─── EDITORIAL HERO SECTION (Consistent Left Alignment) ─── */}
+        <section className="mb-8 sm:mb-10 border-b border-[#DDD6C9] pb-8 sm:pb-10 text-left">
+          {/* Editorial Eyebrow */}
+          <div className="flex items-center justify-start gap-2.5 mb-3 text-2xs font-extrabold uppercase tracking-widest text-[#B86F58]">
+            <SoundwaveMotif bars={3} height="h-2.5" color="text-[#D99B37]" />
+            <span>Your Everyday Accessibility Companion</span>
+          </div>
+
+          <h1 className="font-editorial text-4xl sm:text-5xl lg:text-6xl font-normal tracking-tight text-[#33446A] leading-[1.12]">
+            {t.welcomeTitle || "How can I help you today?"}
           </h1>
-          <p className="mt-2.5 text-sm sm:text-base lg:text-lg leading-relaxed text-[#485E4B] max-w-2xl">
-            {t.welcomeSubtitle}
+
+          <p className="mt-3 text-base sm:text-lg leading-relaxed text-[#485E4B] max-w-2xl font-normal">
+            Speak naturally, share a picture or upload a document. I&apos;ll help make things easier to understand.
           </p>
-          {/* Subtle soundwave motif under hero */}
-          <div className="mt-4 flex items-center justify-center sm:justify-start gap-1.5 text-[#D99B37]" aria-hidden="true">
-            <span className="h-1 w-6 rounded-full bg-[#D99B37]/30"></span>
-            <span className="h-1 w-2 rounded-full bg-[#D99B37]"></span>
-            <span className="h-1.5 w-0.5 rounded-full bg-[#33446A]/40"></span>
-            <span className="h-3 w-0.5 rounded-full bg-[#33446A]"></span>
-            <span className="h-4.5 w-0.5 rounded-full bg-[#D99B37]"></span>
-            <span className="h-3 w-0.5 rounded-full bg-[#33446A]"></span>
-            <span className="h-1.5 w-0.5 rounded-full bg-[#33446A]/40"></span>
-            <span className="h-1 w-2 rounded-full bg-[#D99B37]"></span>
-            <span className="h-1 w-6 rounded-full bg-[#D99B37]/30"></span>
+
+          {/* Typographic Capability Line */}
+          <div className="mt-5 flex flex-wrap items-center justify-start gap-x-3 gap-y-1.5 text-xs font-semibold text-[#485E4B]">
+            <span className="inline-flex items-center gap-1.5 text-[#33446A]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#D99B37]"></span>
+              <span>13 languages</span>
+            </span>
+            <span className="text-[#DDD6C9]">/</span>
+            <span className="inline-flex items-center gap-1.5 text-[#33446A]">
+              <SoundwaveMotif bars={3} height="h-2" color="text-[#D99B37]" />
+              <span>Voice assistance</span>
+            </span>
+            <span className="text-[#DDD6C9]">/</span>
+            <span className="inline-flex items-center gap-1.5 text-[#33446A]">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="m21 15-5-5L5 21" />
+              </svg>
+              <span>Image understanding</span>
+            </span>
+            <span className="text-[#DDD6C9]">/</span>
+            <span className="inline-flex items-center gap-1.5 text-[#33446A]">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                <path d="M14 2v6h6" />
+              </svg>
+              <span>Document reading</span>
+            </span>
           </div>
         </section>
 
@@ -1218,17 +1313,17 @@ export default function Home() {
         </nav>
 
         {/* ─── MAIN ASYMMETRIC GRID (Desktop: 7-col Voice + 5-col Multimodal) ─── */}
-        <div className="lg:grid lg:grid-cols-12 lg:gap-8 items-start">
+        <div className="lg:grid lg:grid-cols-12 lg:gap-10 items-start">
 
           {/* ═════════════════════════════════════════════════════════ */}
           {/* PRIMARY COLUMN (lg:col-span-7): TALK TO SUNOZA            */}
           {/* ═════════════════════════════════════════════════════════ */}
           <div className={`lg:col-span-7 ${activeTab === "voice" ? "block" : "hidden lg:block"}`}>
-            <section className="rounded-3xl border border-[#DDD6C9] bg-[#FFFCF7] p-6 sm:p-8 lg:p-9 shadow-xs relative overflow-hidden">
-              {/* Card Header */}
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ECE7DC] pb-4 mb-6">
+            <section aria-labelledby="voice-section-heading">
+              {/* 1. Editorial Section Header (Standard min-h-[58px] baseline alignment with right column) */}
+              <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-[#DDD6C9] pb-3 mb-6 min-h-[58px]">
                 <div>
-                  <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-[#33446A]">
+                  <h2 id="voice-section-heading" className="font-editorial text-2xl sm:text-3xl font-medium tracking-tight text-[#33446A]">
                     {t.tabVoice}
                   </h2>
                   <p className="mt-1 text-xs text-[#485E4B]">
@@ -1236,19 +1331,19 @@ export default function Home() {
                   </p>
                 </div>
 
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-[#F3EFE6] px-3 py-1 text-xs font-bold text-[#33446A]">
+                <div className="flex items-center gap-2 text-xs font-semibold text-[#33446A]">
                   <SoundwaveMotif bars={4} height="h-3" color="text-[#D99B37]" animated={micState === "recording" || micState === "speaking"} />
-                  <span>Voice Assistant</span>
-                </span>
+                  <span className="uppercase tracking-wider text-2xs font-bold text-[#485E4B]">Voice First</span>
+                </div>
               </div>
 
-              {/* Prominent Microphone Control Area with Waveform Motif */}
-              <div className="my-8 sm:my-10 flex flex-col items-center">
-                {/* Live Recording Indicator Pill for elderly and accessibility ease */}
+              {/* 2 & 3. Centered Microphone Area & Waveform — Open, Breathing, Unboxed */}
+              <div className="my-6 sm:my-8 flex flex-col items-center">
+                {/* Live Recording Indicator */}
                 {micState === "recording" && (
                   <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-[#B86F58]/15 border border-[#B86F58]/35 px-4 py-1.5 text-xs font-bold text-[#B86F58] animate-pulse shadow-2xs">
                     <span className="h-2 w-2 rounded-full bg-[#B86F58]"></span>
-                    <span>Listening… Tap microphone when finished</span>
+                    <span>Listening… Tap microphone when finished (0:{recordingSeconds.toString().padStart(2, "0")} / 0:30)</span>
                   </div>
                 )}
 
@@ -1307,22 +1402,34 @@ export default function Home() {
                   </button>
                 </div>
 
-                {/* Status & Short Clear Instructions */}
-                <p className="mt-5 text-xl font-bold text-[#252A31]" aria-live="polite">
+                {/* 4. Recording Instruction & Status */}
+                <p className="mt-5 text-xl font-bold text-[#252A31] text-center" aria-live="polite">
                   {micState === "processing"
-                    ? t.micProcessing
+                    ? "Understanding your request…"
                     : micState === "recording"
-                    ? t.micRecording
+                    ? "Listening…"
                     : micState === "thinking"
-                    ? t.micThinking
+                    ? "Understanding your request…"
                     : micState === "speaking"
                     ? t.micSpeaking
-                    : t.micIdle}
+                    : "Ready when you are."}
                 </p>
 
-                <p className="mt-1 text-sm text-[#485E4B]">
-                  {t.micInstruction}
+                <p className="mt-1 text-sm text-[#485E4B] text-center">
+                  {micState === "recording"
+                    ? `0:${recordingSeconds.toString().padStart(2, "0")} of 30 seconds max`
+                    : micState === "processing" || micState === "thinking"
+                    ? "Analyzing speech and generating response…"
+                    : micState === "speaking"
+                    ? "Playing spoken explanation aloud"
+                    : "Tap the microphone and speak naturally."}
                 </p>
+
+                <div className="mt-3 flex items-center gap-2 text-xs font-medium text-[#485E4B]">
+                  <SoundwaveMotif bars={3} height="h-2.5" color="text-[#D99B37]" />
+                  <span>Listening in:</span>
+                  <span className="font-bold text-[#33446A]">{currentLangMeta.nativeName}</span>
+                </div>
               </div>
 
               {/* Error Banner */}
@@ -1335,9 +1442,36 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Transcript & Response Area */}
-              {transcript && (
-                <div className="rounded-2xl border border-[#DDD6C9] bg-[#F3EFE6] p-5 sm:p-6 mb-6">
+              {/* Gentle "No Speech Detected" Banner */}
+              {transcript === "No speech detected." && (
+                <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/70 p-5 text-sm text-amber-900">
+                  <div className="flex items-center gap-2 font-bold mb-1">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <span>No speech was detected</span>
+                  </div>
+                  <p className="text-xs text-amber-800 leading-relaxed mb-3">
+                    We couldn&apos;t detect any clear speech in your recording. Please ensure your microphone is unmuted, speak clearly, and try again.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTranscript("");
+                      setDetectedLanguage("");
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-amber-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-amber-950 transition"
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+
+              {/* 5. Transcript or Conversation Reading Surface (when present) */}
+              {transcript && transcript !== "No speech detected." && (
+                <div className="rounded-2xl border border-[#DDD6C9] bg-[#FFFCF7] p-5 sm:p-6 mb-6 shadow-xs">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-1.5">
                       <SoundwaveMotif bars={3} height="h-3" color="text-[#33446A]" />
@@ -1345,17 +1479,35 @@ export default function Home() {
                         {t.whatIHerd}
                       </span>
                     </div>
-                    <span className="rounded-full bg-[#ECE7DC] px-2.5 py-0.5 text-xs font-semibold text-[#485E4B]">
-                      {currentLangMeta.code !== "auto" ? currentLangMeta.nativeName : detectedLanguage || "Auto"}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-semibold text-[#485E4B]">
+                        {currentLangMeta.code !== "auto" ? currentLangMeta.nativeName : detectedLanguage || "Auto"}
+                      </span>
+                      <span className="text-[#DDD6C9]">·</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTranscript("");
+                          setAssistantResponse("");
+                          if (voiceAudioUrl) {
+                            URL.revokeObjectURL(voiceAudioUrl);
+                            setVoiceAudioUrl("");
+                          }
+                        }}
+                        className="text-xs text-[#B86F58] hover:underline font-semibold"
+                        aria-label="Clear transcript"
+                      >
+                        Clear
+                      </button>
+                    </div>
                   </div>
 
                   <p className="text-base leading-relaxed text-[#252A31] break-words">{transcript}</p>
 
-                  {/* Assistant Response Card */}
+                  {/* Assistant Response Inside Surface */}
                   {assistantResponse && (
                     <div
-                      className="mt-4 rounded-xl border border-[#DDD6C9] bg-[#FFFCF7] p-5 shadow-xs"
+                      className="mt-5 border-t border-[#ECE7DC] pt-4"
                       aria-live="polite"
                       role="region"
                       aria-label="Assistant answer"
@@ -1373,7 +1525,7 @@ export default function Home() {
                   )}
 
                   {/* Action Controls */}
-                  <div className="mt-4 border-t border-[#DDD6C9] pt-4">
+                  <div className="mt-5 border-t border-[#DDD6C9] pt-4">
                     <button
                       type="button"
                       onClick={speakTranscript}
@@ -1383,7 +1535,7 @@ export default function Home() {
                       {voiceThinking ? (
                         <>
                           <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
-                          {t.micThinking}
+                          <span>Understanding your request…</span>
                         </>
                       ) : (
                         <>
@@ -1417,11 +1569,26 @@ export default function Home() {
 
                     {voiceAudioUrl && (
                       <div className="mt-4 pt-3 border-t border-[#DDD6C9]/60">
-                        <div className="flex items-center gap-2 mb-2 text-xs font-semibold text-[#33446A]">
-                          <SoundwaveMotif bars={4} height="h-3" color="text-[#D99B37]" animated={true} />
-                          <span>Spoken Audio Response</span>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-[#33446A]">
+                            <SoundwaveMotif bars={4} height="h-3" color="text-[#D99B37]" animated={true} />
+                            <span>Spoken Audio Response</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => replayAudio(voiceAudioRef)}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-[#DDD6C9] bg-[#FFFCF7] px-2.5 py-1 text-xs font-semibold text-[#33446A] hover:bg-[#FAF7F0] transition"
+                            aria-label="Replay audio from beginning"
+                          >
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                              <path d="M3 3v5h5" />
+                            </svg>
+                            <span>Replay Audio</span>
+                          </button>
                         </div>
                         <audio
+                          ref={voiceAudioRef}
                           controls
                           preload="metadata"
                           src={voiceAudioUrl}
@@ -1435,11 +1602,41 @@ export default function Home() {
                 </div>
               )}
 
-              {/* Compact Audio File Upload Bar */}
-              <div className="mt-6 border-t border-[#ECE7DC] pt-5">
+              {/* 6. Example Questions (Shown in Sequence 6) */}
+              {micState === "idle" && !transcript && !assistantResponse && (
+                <div className="mt-6 border-t border-[#DDD6C9] pt-5">
+                  <p className="text-xs font-bold uppercase tracking-wider text-[#485E4B] mb-2.5">
+                    Or try one of these questions:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {VOICE_EXAMPLE_PHRASES.map((phrase) => (
+                      <button
+                        key={phrase}
+                        type="button"
+                        onClick={() => {
+                          setTranscript(phrase);
+                          setDetectedLanguage(currentLangMeta.nativeName || "English");
+                          if (voiceAudioUrl) {
+                            URL.revokeObjectURL(voiceAudioUrl);
+                            setVoiceAudioUrl("");
+                          }
+                          setAssistantResponse("");
+                          setVoiceAudioError("");
+                        }}
+                        className="rounded-xl border border-[#DDD6C9] bg-[#FAF7F0] px-3.5 py-2.5 text-left text-xs font-medium text-[#33446A] hover:border-[#33446A] hover:bg-[#FFFCF7] transition focus-visible:outline-2 focus-visible:outline-[#33446A]"
+                      >
+                        &ldquo;{phrase}&rdquo;
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 7. Audio Upload Hairline Row */}
+              <div className="mt-6 border-t border-[#DDD6C9] pt-4">
                 <label
                   htmlFor="audio-upload"
-                  className={`flex cursor-pointer items-center justify-between rounded-2xl border border-[#DDD6C9] bg-[#FAF7F0] px-4 py-3 text-xs transition hover:border-[#33446A] hover:bg-[#F3EFE6] ${
+                  className={`flex cursor-pointer items-center justify-between rounded-xl border border-[#DDD6C9] bg-[#FAF7F0] px-4 py-2.5 text-xs transition hover:border-[#33446A] hover:bg-[#FFFCF7] ${
                     loading || recording || voiceThinking ? "pointer-events-none opacity-50" : ""
                   }`}
                 >
@@ -1447,12 +1644,12 @@ export default function Home() {
                     <SoundwaveMotif bars={3} height="h-3.5" color="text-[#485E4B]" />
                     <div>
                       <span className="font-semibold text-[#33446A]">{t.orUploadAudio}</span>
-                      <p className="text-xs text-[#485E4B]">{t.audioFormats}</p>
+                      <span className="text-xs text-[#485E4B] ml-2 hidden sm:inline">({t.audioFormats})</span>
                     </div>
                   </div>
 
-                  <span className="rounded-lg bg-[#ECE7DC] px-2.5 py-1 font-semibold text-[#33446A] transition hover:bg-[#DDD6C9]">
-                    Browse
+                  <span className="font-semibold text-[#33446A] underline underline-offset-2">
+                    Browse file
                   </span>
 
                   <input
@@ -1473,63 +1670,75 @@ export default function Home() {
           {/* ═════════════════════════════════════════════════════════ */}
           <div className={`lg:col-span-5 ${activeTab !== "voice" ? "block" : "hidden lg:block"}`}>
 
-            {/* Desktop Tool Switcher: Image vs Document */}
-            <div className="hidden lg:flex mb-4 rounded-2xl border border-[#DDD6C9] bg-[#FFFCF7] p-1.5 shadow-xs">
-              <button
-                type="button"
-                onClick={() => setDesktopToolTab("image")}
-                aria-selected={desktopToolTab === "image"}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
-                  desktopToolTab === "image"
-                    ? "bg-[#33446A] text-[#FFFCF7] shadow-xs"
-                    : "text-[#485E4B] hover:text-[#252A31]"
-                }`}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
-                  <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
-                  <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <span>{t.tabImage}</span>
-              </button>
+            {/* Desktop Unified Header & Tool Switcher (Exact min-h-[58px] baseline alignment with left column) */}
+            <div className="hidden lg:flex items-baseline justify-between gap-3 border-b border-[#DDD6C9] pb-3 mb-6 min-h-[58px]">
+              <div>
+                <h2 className="font-editorial text-2xl sm:text-3xl font-medium tracking-tight text-[#33446A]">
+                  {desktopToolTab === "image" ? t.imageSectionTitle : t.docSectionTitle}
+                </h2>
+                <p className="mt-1 text-xs text-[#485E4B]">
+                  {desktopToolTab === "image" ? t.imageSectionDesc : "Upload an invoice, agreement, letter, policy or other document."}
+                </p>
+              </div>
 
-              <button
-                type="button"
-                onClick={() => setDesktopToolTab("document")}
-                aria-selected={desktopToolTab === "document"}
-                className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-2 text-xs font-bold transition ${
-                  desktopToolTab === "document"
-                    ? "bg-[#33446A] text-[#FFFCF7] shadow-xs"
-                    : "text-[#485E4B] hover:text-[#252A31]"
-                }`}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                  <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                </svg>
-                <span>{t.tabDocument}</span>
-              </button>
+              {/* Integrated Switcher Tabs in Desktop Header */}
+              <div className="flex items-center rounded-xl border border-[#DDD6C9] bg-[#FFFCF7] p-1 shadow-2xs shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setDesktopToolTab("image")}
+                  aria-selected={desktopToolTab === "image"}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    desktopToolTab === "image"
+                      ? "bg-[#33446A] text-[#FFFCF7] shadow-2xs"
+                      : "text-[#485E4B] hover:text-[#252A31]"
+                  }`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
+                    <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
+                    <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span>{t.tabImage}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDesktopToolTab("document")}
+                  aria-selected={desktopToolTab === "document"}
+                  className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition ${
+                    desktopToolTab === "document"
+                      ? "bg-[#33446A] text-[#FFFCF7] shadow-2xs"
+                      : "text-[#485E4B] hover:text-[#252A31]"
+                  }`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                    <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                  </svg>
+                  <span>{t.tabDocument}</span>
+                </button>
+              </div>
             </div>
 
             {/* ─── TOOL A: IMAGE UNDERSTANDING ─── */}
             <div className={`${activeTab === "document" ? "hidden lg:hidden" : (desktopToolTab === "image" || activeTab === "image" ? "block" : "hidden lg:hidden")}`}>
-              <section className="rounded-3xl border border-[#DDD6C9] bg-[#FFFCF7] p-6 sm:p-7 shadow-xs">
-                {/* Header */}
-                <div className="flex items-center justify-between border-b border-[#ECE7DC] pb-3 mb-4">
+              <section aria-labelledby="image-section-heading">
+                {/* Mobile-Only Section Header */}
+                <div className="flex lg:hidden flex-wrap items-baseline justify-between gap-2 border-b border-[#DDD6C9] pb-3 mb-6">
                   <div>
-                    <h2 className="text-xl font-bold tracking-tight text-[#33446A]">
+                    <h2 id="image-section-heading" className="font-editorial text-2xl sm:text-3xl font-medium tracking-tight text-[#33446A]">
                       {t.imageSectionTitle}
                     </h2>
-                    <p className="mt-0.5 text-xs text-[#485E4B]">
+                    <p className="mt-1 text-xs text-[#485E4B]">
                       {t.imageSectionDesc}
                     </p>
                   </div>
-                  <span className="rounded-full bg-[#F3EFE6] px-2.5 py-0.5 text-xs font-bold text-[#33446A]">
+                  <span className="uppercase tracking-wider text-2xs font-bold text-[#485E4B]">
                     Visual AI
                   </span>
                 </div>
 
-                {/* Compact Drag & Drop Area */}
+                {/* Subtle Editorial Upload Surface */}
                 <div
                   tabIndex={0}
                   role="button"
@@ -1571,24 +1780,24 @@ export default function Home() {
                     }
                   }}
                   onClick={() => document.getElementById("image-upload")?.click()}
-                  className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-[1.5px] border-dashed px-4 py-5 text-center transition focus-visible:outline-2 focus-visible:outline-[#33446A] ${
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-[#DDD6C9] px-4 py-6 text-center transition focus-visible:outline-2 focus-visible:outline-[#33446A] ${
                     isImageDragging
                       ? "border-[#33446A] bg-[#ECE7DC] scale-[0.99]"
-                      : "border-[#DDD6C9] bg-[#FAF7F0] hover:border-[#33446A] hover:bg-[#F3EFE6]"
+                      : "bg-[#FAF7F0] hover:border-[#33446A] hover:bg-[#FFFCF7]"
                   }`}
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ECE7DC] text-[#33446A]">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#ECE7DC] text-[#33446A]">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <rect x="3" y="3" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="1.5" />
                       <circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" />
                       <path d="M21 15l-5-5L5 21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
 
-                  <span className="mt-2.5 text-xs font-bold text-[#33446A]">
+                  <span className="mt-3 text-xs font-bold text-[#33446A]">
                     {isImageDragging ? "Drop your image here" : t.chooseImage}
                   </span>
-                  <span className="mt-0.5 text-xs text-[#485E4B]">{t.imageFormatHint}</span>
+                  <span className="mt-0.5 text-xs text-[#485E4B]">JPEG, PNG, WEBP · Up to 8 MB</span>
 
                   <input
                     id="image-upload"
@@ -1616,15 +1825,15 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Selected Image Badge & Preview */}
+                {/* Selected Image Row */}
                 {imageFile && (
-                  <div className="mt-3 flex items-center justify-between rounded-xl border border-[#DDD6C9] bg-[#F3EFE6] px-3.5 py-2.5 text-xs">
+                  <div className="mt-3 flex items-center justify-between rounded-xl border border-[#DDD6C9] bg-[#FFFCF7] px-3.5 py-2.5 text-xs shadow-2xs">
                     <div className="flex items-center gap-2.5 truncate text-[#33446A]">
                       {imagePreviewUrl && (
                         <img
                           src={imagePreviewUrl}
                           alt="Thumbnail preview"
-                          className="h-10 w-10 rounded-lg object-cover border border-[#DDD6C9] shadow-xs shrink-0"
+                          className="h-10 w-10 rounded-lg object-cover border border-[#DDD6C9] shadow-2xs shrink-0"
                         />
                       )}
                       <div className="truncate">
@@ -1645,6 +1854,25 @@ export default function Home() {
                   </div>
                 )}
 
+                {/* Suggested Question Chips */}
+                <div className="mt-4">
+                  <p className="text-2xs font-bold uppercase tracking-wider text-[#485E4B] mb-2">
+                    Suggested questions:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {IMAGE_PROMPT_CHIPS.map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => setImageQuestion(chip)}
+                        className="rounded-lg border border-[#DDD6C9] bg-[#FAF7F0] px-3 py-1.5 text-2xs font-medium text-[#33446A] hover:border-[#33446A] hover:bg-[#FFFCF7] transition"
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Question Input */}
                 <label
                   htmlFor="image-question"
@@ -1659,7 +1887,7 @@ export default function Home() {
                   onChange={(e) => setImageQuestion(e.target.value)}
                   placeholder={t.imagePromptPlaceholder}
                   rows={2}
-                  className="w-full rounded-xl border border-[#DDD6C9] bg-[#F3EFE6] p-3 text-base outline-none transition focus:border-[#33446A] focus:bg-[#FFFCF7] sm:text-xs"
+                  className="w-full rounded-xl border border-[#DDD6C9] bg-[#FAF7F0] p-3 text-base outline-none transition focus:border-[#33446A] focus:bg-[#FFFCF7] sm:text-xs"
                 />
 
                 <button
@@ -1684,15 +1912,15 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Image Explanation Result */}
+                {/* Image Explanation Result Reading Surface */}
                 {imageAnswer && (
                   <div
-                    className="mt-4 rounded-2xl border border-[#DDD6C9] bg-[#F3EFE6] p-4 text-xs"
+                    className="mt-5 rounded-2xl border border-[#DDD6C9] bg-[#FFFCF7] p-5 text-xs shadow-xs"
                     aria-live="polite"
                     role="region"
                     aria-label="Image explanation"
                   >
-                    <div className="flex items-center gap-1.5 mb-1.5">
+                    <div className="flex items-center gap-1.5 mb-2">
                       <SoundwaveMotif bars={3} height="h-3" color="text-[#D99B37]" />
                       <p className="font-bold uppercase tracking-wider text-[#D99B37] text-xs">
                         {t.sunozaSays}
@@ -1702,7 +1930,7 @@ export default function Home() {
                     <p className="leading-relaxed text-[#252A31] text-sm break-words">{imageAnswer}</p>
 
                     {/* Audio Playback Controls */}
-                    <div className="mt-3 border-t border-[#DDD6C9] pt-3">
+                    <div className="mt-4 border-t border-[#ECE7DC] pt-3">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-[#33446A]">
                           {t.listenExplanation}
@@ -1714,9 +1942,18 @@ export default function Home() {
                           </span>
                         )}
                         {understandAudioUrl && !understandAudioLoading && (
-                          <span className="text-xs font-semibold text-[#485E4B]">
-                            ✓ {t.audioReady}
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => replayAudio(understandAudioRef)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-[#DDD6C9] bg-[#FFFCF7] px-2.5 py-1 text-xs font-semibold text-[#33446A] hover:bg-[#FAF7F0] transition"
+                            aria-label="Replay audio"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                              <path d="M3 3v5h5" />
+                            </svg>
+                            <span>Replay Audio</span>
+                          </button>
                         )}
                       </div>
 
@@ -1736,7 +1973,12 @@ export default function Home() {
                       )}
 
                       {understandAudioUrl && (
-                        <audio controls src={understandAudioUrl} className="mt-2 w-full">
+                        <audio
+                          ref={understandAudioRef}
+                          controls
+                          src={understandAudioUrl}
+                          className="mt-2 w-full"
+                        >
                           Your browser does not support audio playback.
                         </audio>
                       )}
@@ -1748,23 +1990,23 @@ export default function Home() {
 
             {/* ─── TOOL B: DOCUMENT UNDERSTANDING ─── */}
             <div className={`${activeTab === "image" ? "hidden lg:hidden" : (desktopToolTab === "document" || activeTab === "document" ? "block" : "hidden lg:hidden")}`}>
-              <section className="rounded-3xl border border-[#DDD6C9] bg-[#FFFCF7] p-6 sm:p-7 shadow-xs">
-                {/* Header */}
-                <div className="flex items-center justify-between border-b border-[#ECE7DC] pb-3 mb-4">
+              <section aria-labelledby="doc-section-heading">
+                {/* Mobile-Only Section Header */}
+                <div className="flex lg:hidden flex-wrap items-baseline justify-between gap-2 border-b border-[#DDD6C9] pb-3 mb-6">
                   <div>
-                    <h2 className="text-xl font-bold tracking-tight text-[#33446A]">
+                    <h2 id="doc-section-heading" className="font-editorial text-2xl sm:text-3xl font-medium tracking-tight text-[#33446A]">
                       {t.docSectionTitle}
                     </h2>
-                    <p className="mt-0.5 text-xs text-[#485E4B]">
-                      {t.docSectionDesc}
+                    <p className="mt-1 text-xs text-[#485E4B]">
+                      Upload an invoice, agreement, letter, policy or other document.
                     </p>
                   </div>
-                  <span className="rounded-full bg-[#F3EFE6] px-2.5 py-0.5 text-xs font-bold text-[#33446A]">
+                  <span className="uppercase tracking-wider text-2xs font-bold text-[#485E4B]">
                     Document AI
                   </span>
                 </div>
 
-                {/* Compact Drag & Drop Area */}
+                {/* Subtle Editorial Upload Surface */}
                 <div
                   tabIndex={0}
                   role="button"
@@ -1801,24 +2043,24 @@ export default function Home() {
                     }
                   }}
                   onClick={() => document.getElementById("doc-upload")?.click()}
-                  className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border-[1.5px] border-dashed px-4 py-5 text-center transition focus-visible:outline-2 focus-visible:outline-[#33446A] ${
+                  className={`flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-[#DDD6C9] px-4 py-6 text-center transition focus-visible:outline-2 focus-visible:outline-[#33446A] ${
                     isDocDragging
                       ? "border-[#33446A] bg-[#ECE7DC] scale-[0.99]"
-                      : "border-[#DDD6C9] bg-[#FAF7F0] hover:border-[#33446A] hover:bg-[#F3EFE6]"
+                      : "bg-[#FAF7F0] hover:border-[#33446A] hover:bg-[#FFFCF7]"
                   }`}
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#ECE7DC] text-[#33446A]">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#ECE7DC] text-[#33446A]">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                       <path d="M14 2v6h6" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
                       <path d="M8 13h8M8 17h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                     </svg>
                   </div>
 
-                  <span className="mt-2.5 text-xs font-bold text-[#33446A]">
+                  <span className="mt-3 text-xs font-bold text-[#33446A]">
                     {isDocDragging ? "Drop your file here" : t.chooseDoc}
                   </span>
-                  <span className="mt-0.5 text-xs text-[#485E4B]">{t.docFormatHint}</span>
+                  <span className="mt-0.5 text-xs text-[#485E4B]">PDF, TXT, MD, CSV · Up to 10 MB (Max 30 pages for PDF)</span>
 
                   <input
                     id="doc-upload"
@@ -1844,9 +2086,9 @@ export default function Home() {
                   />
                 </div>
 
-                {/* Selected Document Badge */}
+                {/* Selected Document Row */}
                 {docFile && (
-                  <div className="mt-3 flex items-center justify-between rounded-xl border border-[#DDD6C9] bg-[#F3EFE6] px-3.5 py-2.5 text-xs">
+                  <div className="mt-3 flex items-center justify-between rounded-xl border border-[#DDD6C9] bg-[#FFFCF7] px-3.5 py-2.5 text-xs shadow-2xs">
                     <div className="flex items-center gap-2.5 truncate text-[#33446A]">
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="shrink-0 text-[#33446A]" aria-hidden="true">
                         <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
@@ -1870,6 +2112,25 @@ export default function Home() {
                   </div>
                 )}
 
+                {/* Suggested Task Chips */}
+                <div className="mt-4">
+                  <p className="text-2xs font-bold uppercase tracking-wider text-[#485E4B] mb-2">
+                    Suggested tasks:
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DOC_PROMPT_CHIPS.map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => setDocQuestion(chip)}
+                        className="rounded-lg border border-[#DDD6C9] bg-[#FAF7F0] px-3 py-1.5 text-2xs font-medium text-[#33446A] hover:border-[#33446A] hover:bg-[#FFFCF7] transition"
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Question Input */}
                 <label
                   htmlFor="doc-question"
@@ -1884,7 +2145,7 @@ export default function Home() {
                   onChange={(e) => setDocQuestion(e.target.value)}
                   placeholder={t.docPromptPlaceholder}
                   rows={2}
-                  className="w-full rounded-xl border border-[#DDD6C9] bg-[#F3EFE6] p-3 text-base outline-none transition focus:border-[#33446A] focus:bg-[#FFFCF7] sm:text-xs"
+                  className="w-full rounded-xl border border-[#DDD6C9] bg-[#FAF7F0] p-3 text-base outline-none transition focus:border-[#33446A] focus:bg-[#FFFCF7] sm:text-xs"
                 />
 
                 <button
@@ -1914,10 +2175,10 @@ export default function Home() {
                   </div>
                 )}
 
-                {/* Document Explanation Result */}
+                {/* Document Explanation Result Reading Surface */}
                 {docAnswer && (
                   <div
-                    className="mt-4 rounded-2xl border border-[#DDD6C9] bg-[#F3EFE6] p-4 text-xs"
+                    className="mt-5 rounded-2xl border border-[#DDD6C9] bg-[#FFFCF7] p-5 text-xs shadow-xs"
                     aria-live="polite"
                     role="region"
                     aria-label="Document explanation"
@@ -1930,19 +2191,21 @@ export default function Home() {
                         </p>
                       </div>
                       {docMeta && (
-                        <span className="rounded-full bg-[#ECE7DC] px-2.5 py-0.5 text-xs font-bold text-[#33446A]">
+                        <span className="text-xs font-bold text-[#33446A]">
                           {docMeta.fileType?.toUpperCase()} · {docMeta.numPages} {docMeta.numPages === 1 ? "page" : "pages"}
                           {docMeta.isScanned ? " · OCR" : ""}
                         </span>
                       )}
                     </div>
 
-                    <div className="leading-relaxed whitespace-pre-line text-[#252A31] text-sm break-words">
-                      {docAnswer}
+                    <div className="space-y-3 leading-relaxed text-[#252A31] text-sm break-words">
+                      {docAnswer.split("\n\n").map((para, idx) => (
+                        <p key={idx}>{para}</p>
+                      ))}
                     </div>
 
                     {/* Audio Playback Controls */}
-                    <div className="mt-3 border-t border-[#DDD6C9] pt-3">
+                    <div className="mt-4 border-t border-[#ECE7DC] pt-3">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-[#33446A]">
                           {t.listenExplanation}
@@ -1954,9 +2217,18 @@ export default function Home() {
                           </span>
                         )}
                         {docAudioUrl && !docAudioLoading && (
-                          <span className="text-xs font-semibold text-[#485E4B]">
-                            ✓ {t.audioReady}
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => replayAudio(docAudioRef)}
+                            className="inline-flex items-center gap-1 rounded-lg border border-[#DDD6C9] bg-[#FFFCF7] px-2.5 py-1 text-xs font-semibold text-[#33446A] hover:bg-[#FAF7F0] transition"
+                            aria-label="Replay audio"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                              <path d="M3 3v5h5" />
+                            </svg>
+                            <span>Replay Audio</span>
+                          </button>
                         )}
                       </div>
 
@@ -1976,7 +2248,12 @@ export default function Home() {
                       )}
 
                       {docAudioUrl && (
-                        <audio controls src={docAudioUrl} className="mt-2 w-full">
+                        <audio
+                          ref={docAudioRef}
+                          controls
+                          src={docAudioUrl}
+                          className="mt-2 w-full"
+                        >
                           Your browser does not support audio playback.
                         </audio>
                       )}
@@ -1988,14 +2265,162 @@ export default function Home() {
           </div>
         </div>
 
-        {/* ─── FOOTER ─── */}
-        <footer className="mt-12 sm:mt-16 border-t border-[#DDD6C9]/70 pt-6 text-center text-xs font-medium text-[#485E4B]">
-          <div className="flex items-center justify-center gap-2 mb-1.5">
-            <SoundwaveMotif bars={3} height="h-2.5" color="text-[#D99B37]" />
-            <span>{t.appName} · {t.tagline}</span>
-            <SoundwaveMotif bars={3} height="h-2.5" color="text-[#D99B37]" />
+        {/* ─── HOW SUNOZA HELPS (EDITORIAL 3-COLUMN MAGAZINE LAYOUT) ─── */}
+        <section className="mt-16 sm:mt-20 border-t border-[#DDD6C9] pt-10 sm:pt-14">
+          <div className="mb-8 sm:mb-10 text-left">
+            <span className="text-2xs font-extrabold uppercase tracking-widest text-[#B86F58] block mb-2">
+              Everyday Accessibility
+            </span>
+            <h2 className="font-editorial text-3xl sm:text-4xl lg:text-5xl font-normal tracking-tight text-[#33446A]">
+              Designed to make everyday technology easier.
+            </h2>
+            <p className="mt-3 text-sm sm:text-base text-[#485E4B] max-w-2xl leading-relaxed">
+              Simple ways to communicate, understand what you see and make sense of important information.
+            </p>
           </div>
-          <p>{t.footerText} · Powered by Gnani AI & Gemini</p>
+
+          {/* Three Open Columns with Consistent Gutters & Shared Baselines */}
+          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[#DDD6C9] border-y border-[#DDD6C9]">
+            {/* Column 01 */}
+            <div className="flex flex-col justify-between py-6 md:py-8 px-0 md:px-8 first:md:pl-0 last:md:pr-0">
+              <div>
+                <span className="font-editorial text-4xl sm:text-5xl italic text-[#D99B37] block mb-3 font-normal leading-none">
+                  01
+                </span>
+                <span className="text-2xs font-bold uppercase tracking-wider text-[#485E4B] block mb-1">
+                  Voice First
+                </span>
+                <h3 className="font-editorial text-2xl font-medium text-[#33446A] mb-2.5">
+                  Talk naturally
+                </h3>
+                <p className="text-sm leading-relaxed text-[#485E4B]">
+                  Speak in your preferred language and receive a natural spoken response.
+                </p>
+              </div>
+              <div className="mt-6 pt-4 border-t border-[#ECE7DC] flex items-center gap-1.5 text-xs font-semibold text-[#33446A]">
+                <SoundwaveMotif bars={3} height="h-2.5" color="text-[#D99B37]" />
+                <span>13 Languages Supported</span>
+              </div>
+            </div>
+
+            {/* Column 02 */}
+            <div className="flex flex-col justify-between py-6 md:py-8 px-0 md:px-8 first:md:pl-0 last:md:pr-0">
+              <div>
+                <span className="font-editorial text-4xl sm:text-5xl italic text-[#B86F58] block mb-3 font-normal leading-none">
+                  02
+                </span>
+                <span className="text-2xs font-bold uppercase tracking-wider text-[#485E4B] block mb-1">
+                  Visual AI
+                </span>
+                <h3 className="font-editorial text-2xl font-medium text-[#33446A] mb-2.5">
+                  Understand what you see
+                </h3>
+                <p className="text-sm leading-relaxed text-[#485E4B]">
+                  Share a photograph, screenshot or sign and ask questions about it.
+                </p>
+              </div>
+              <div className="mt-6 pt-4 border-t border-[#ECE7DC] flex items-center gap-1.5 text-xs font-semibold text-[#33446A]">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#B86F58]" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="m10 15 5-3-5-3v6Z" fill="currentColor" />
+                </svg>
+                <span>Instant Spoken Answers</span>
+              </div>
+            </div>
+
+            {/* Column 03 */}
+            <div className="flex flex-col justify-between py-6 md:py-8 px-0 md:px-8 first:md:pl-0 last:md:pr-0">
+              <div>
+                <span className="font-editorial text-4xl sm:text-5xl italic text-[#485E4B] block mb-3 font-normal leading-none">
+                  03
+                </span>
+                <span className="text-2xs font-bold uppercase tracking-wider text-[#485E4B] block mb-1">
+                  Document AI
+                </span>
+                <h3 className="font-editorial text-2xl font-medium text-[#33446A] mb-2.5">
+                  Make documents simpler
+                </h3>
+                <p className="text-sm leading-relaxed text-[#485E4B]">
+                  Understand letters, invoices, forms, agreements and important information.
+                </p>
+              </div>
+              <div className="mt-6 pt-4 border-t border-[#ECE7DC] flex items-center gap-1.5 text-xs font-semibold text-[#33446A]">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#485E4B]" aria-hidden="true">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+                  <path d="M14 2v6h6" />
+                </svg>
+                <span>PDF, TXT, MD, CSV & OCR</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── EDITORIAL TRUST & PRIVACY STRIP (UNBOXED, MATCHING 3-COLUMN GRID) ─── */}
+        <section className="mt-10 sm:mt-12 border-b border-[#DDD6C9] pb-8 sm:pb-10" aria-label="Trust and security information">
+          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-[#DDD6C9] text-xs">
+            <div className="py-4 md:py-0 px-0 md:px-8 first:md:pl-0 last:md:pr-0 flex items-start gap-3.5">
+              <span className="font-editorial text-2xl italic text-[#33446A] font-normal leading-none shrink-0">
+                01
+              </span>
+              <div>
+                <h4 className="font-bold text-[#33446A] text-sm">Server-side security</h4>
+                <p className="mt-1 text-[#485E4B] leading-relaxed">
+                  API credentials remain server-side and are not exposed in the browser.
+                </p>
+              </div>
+            </div>
+
+            <div className="py-4 md:py-0 px-0 md:px-8 first:md:pl-0 last:md:pr-0 flex items-start gap-3.5">
+              <span className="font-editorial text-2xl italic text-[#33446A] font-normal leading-none shrink-0">
+                02
+              </span>
+              <div>
+                <h4 className="font-bold text-[#33446A] text-sm">Transparent limits</h4>
+                <p className="mt-1 text-[#485E4B] leading-relaxed">
+                  Clearly explain upload sizes (8 MB image, 10 MB doc, 30 PDF pages) and 30-second recording limits.
+                </p>
+              </div>
+            </div>
+
+            <div className="py-4 md:py-0 px-0 md:px-8 first:md:pl-0 last:md:pr-0 flex items-start gap-3.5">
+              <span className="font-editorial text-2xl italic text-[#33446A] font-normal leading-none shrink-0">
+                03
+              </span>
+              <div>
+                <h4 className="font-bold text-[#33446A] text-sm">AI verification</h4>
+                <p className="mt-1 text-[#485E4B] leading-relaxed">
+                  Remind users that important legal, medical and financial information should be verified.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ─── REFINED EDITORIAL FOOTER ─── */}
+        <footer className="mt-12 sm:mt-16 pt-6 pb-8 text-center text-xs text-[#485E4B]">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#33446A] text-[#FFFCF7] font-bold text-xs shadow-2xs">
+                S
+              </div>
+              <span className="font-bold text-[#33446A] text-sm tracking-tight">{t.appName}</span>
+              <span className="text-[#DDD6C9]">/</span>
+              <span className="font-medium text-[#485E4B]">{t.tagline}</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#33446A]">
+                <SoundwaveMotif bars={3} height="h-2.5" color="text-[#D99B37]" />
+                <span>Accessibility Assistant</span>
+              </span>
+              <span className="text-[#DDD6C9]">·</span>
+              <span className="text-xs text-[#485E4B]">Powered by Gnani AI & Gemini</span>
+            </div>
+          </div>
+
+          <p className="text-xs text-[#485E4B]/80 max-w-xl mx-auto">
+            Crafted with high contrast, keyboard accessibility, and multilingual voice-first interaction to empower every user.
+          </p>
         </footer>
       </div>
     </main>
